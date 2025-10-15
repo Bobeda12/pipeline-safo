@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<h2>{{ titulo }}</h2>
+<form method="post">
+    <div class="mb-3">
+        <label for="programa" class="form-label">Programa (ex: PPGEE)</label>
+        <input type="text" class="form-control" id="programa" name="programa" value="{{ linha.programa if linha else '' }}" required>
+    </div>
+    <div class="mb-3">
+        <label for="linha" class="form-label">Nome da Linha de Pesquisa</label>
+        <input type="text" class="form-control" id="linha" name="linha" value="{{ linha.linha if linha else '' }}" required>
+    </div>
+    <div class="mb-3">
+        <label for="descricao" class="form-label">Descrição</label>
+        <textarea class="form-control" id="descricao" name="descricao" rows="4" required>{{ linha.descricao if linha else '' }}</textarea>
+    </div>
+    <div class="mb-3">
+        <label for="emails_contato" class="form-label">E-mails de Contato (separados por vírgula)</label>
+        <input type="text" class="form-control" id="emails_contato" name="emails_contato" value="{{ linha.emails_contato if linha else '' }}">
+    </div>
+    <button type="submit" class="btn btn-success">Salvar</button>
+    <a href="{{ url_for('listar_linhas') }}" class="btn btn-secondary">Cancelar</a>
+</form>
+{% endblock %}

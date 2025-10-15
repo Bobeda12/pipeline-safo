@@ -1,3 +1,4 @@
+# gerar_banco_grande.py
 import sqlite3
 import random
 import time
@@ -5,13 +6,12 @@ from faker import Faker
 
 # --- CONFIGURAÇÕES ---
 NOME_BANCO = 'projeto_grande.db'
-NUM_EDITAIS = 5000
+NUM_EDITAIS = 500 # Usando um número menor para testes mais rápidos
 NUM_LINHAS_PESQUISA = 200
 
 fake = Faker('pt_BR')
 
 AREAS_CONHECIMENTO = [
-    # (O dicionário de áreas continua o mesmo de antes)
     {
         "area": "Inteligência Artificial", "programa": "PPGIA",
         "substantivos": ["algoritmos", "redes neurais", "aprendizado de máquina", "processamento de linguagem natural", "visão computacional"],
@@ -44,7 +44,6 @@ AREAS_CONHECIMENTO = [
     }
 ]
 
-# --- MUDANÇA: Adicionando frases de elegibilidade realistas ---
 FRASES_ELEGIBILIDADE = [
     "Este edital é aberto a toda instituição de ciência e tecnologia (ICT) do país.",
     "Universidades públicas e institutos de pesquisa são o público-alvo principal.",
@@ -63,13 +62,9 @@ def gerar_linha_pesquisa(base):
 def gerar_edital(base):
     titulo = f"Chamada Pública nº {random.randint(1, 99)}/2025 - Fomento a Projetos em {base['area']}"
     texto_base = f"O presente edital visa selecionar propostas para apoio financeiro a projetos que contribuam para o desenvolvimento científico e tecnológico em {base['area']}. Serão consideradas propostas que busquem {random.choice(base['verbos'])} soluções em {random.choice(base['substantivos'])}. "
-    
-    # Adiciona uma frase de elegibilidade aleatória ao final do texto
     frase_elegibilidade_aleatoria = random.choice(FRASES_ELEGIBILIDADE)
     texto_pdf = texto_base + " " + frase_elegibilidade_aleatoria
-    
     return titulo, texto_pdf
-
 
 def criar_banco_grande():
     print(f"Iniciando a criação do banco de dados '{NOME_BANCO}' com dados realistas e elegibilidade...")
@@ -83,7 +78,7 @@ def criar_banco_grande():
     cursor.execute("DROP TABLE IF EXISTS match;")
     
     cursor.execute("CREATE TABLE edital (id INTEGER PRIMARY KEY, titulo TEXT, orgao TEXT, link_pagina TEXT, texto_pdf TEXT, status TEXT);")
-    cursor.execute("CREATE TABLE linha_ime (id INTEGER PRIMARY KEY, programa TEXT, linha TEXT, descricao TEXT, emails_contato TEXT);")
+    cursor.execute("CREATE TABLE linha_ime (id INTEGER PRIMARY KEY, programa TEXT, linha TEXT, descricao TEXT, emails_contato TEXT, embedding BLOB);")
     
     # Gerar Linhas de Pesquisa
     print(f"Gerando {NUM_LINHAS_PESQUISA} linhas de pesquisa...")
@@ -91,8 +86,9 @@ def criar_banco_grande():
     for i in range(1, NUM_LINHAS_PESQUISA + 1):
         base = random.choice(AREAS_CONHECIMENTO)
         linha, descricao = gerar_linha_pesquisa(base)
-        linhas_para_inserir.append((i, base['programa'], linha, descricao, fake.email()))
-    cursor.executemany("INSERT INTO linha_ime VALUES (?, ?, ?, ?, ?);", linhas_para_inserir)
+        # Inserindo None para o embedding, que será calculado depois
+        linhas_para_inserir.append((i, base['programa'], linha, descricao, fake.email(), None))
+    cursor.executemany("INSERT INTO linha_ime VALUES (?, ?, ?, ?, ?, ?);", linhas_para_inserir)
     
     # Gerar Editais
     print(f"Gerando {NUM_EDITAIS} editais...")
