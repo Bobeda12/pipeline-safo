@@ -1,14 +1,17 @@
 {% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
 <div class="card p-3 shadow-sm mb-4">
-    <label for="selectLinha" class="form-label fs-5"><strong>Selecione uma Linha de Pesquisa</strong></label>
+    <label for="selectLinha" class="form-label fs-5"><strong>Selecione uma Linha de Pesquisa para ver os editais compatíveis</strong></label>
     <select id="selectLinha" class="form-select form-select-lg">
         <option value="">-- Carregando Linhas de Pesquisa... --</option>
     </select>
 </div>
+
 <hr>
 <h2 class="mt-4 mb-3">Sugestões de Editais (Ordenados por Relevância)</h2>
 <div id="status" class="alert alert-info">Selecione uma linha de pesquisa para ver os editais compatíveis.</div>
+
 <div class="table-responsive">
     <table class="table table-striped table-hover shadow-sm" id="tabelaEditais" style="display:none;">
         <thead class="table-dark">
@@ -16,15 +19,143 @@
                 <th>Título do Edital</th>
                 <th>Programa (IME)</th>
                 <th>Score (IA)</th>
+                <th>Ação</th>
             </tr>
         </thead>
         <tbody id="corpoTabela"></tbody>
     </table>
 </div>
+
+<!-- Modal para exibir detalhes do edital -->
+<div class="modal fade" id="editalModal" tabindex="-1" aria-labelledby="editalModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editalModalTitle">Detalhes do Edital</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="editalModalBody">
+        <p>Carregando detalhes...</p>
+      </div>
+      <div class="modal-footer">
+        <a href="#" id="editalModalLink" class="btn btn-primary" target="_blank">Abrir Página do Edital</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
+
 {% block scripts %}
 <script>
-    // Cole aqui o código JavaScript que já tínhamos para o index.html
-    // (o que tem as funções popularDropdown, buscarTodosOsMatches, exibirResultados)
+    let todosOsMatches = [];
+    const selectLinha = document.getElementById('selectLinha');
+    const tabela = document.getElementById('tabelaEditais');
+    const corpoTabela = document.getElementById('corpoTabela');
+    const statusDiv = document.getElementById('status');
+    const editalModal = new bootstrap.Modal(document.getElementById('editalModal'));
+
+    function popularDropdown() {
+        fetch('/api/linhas-de-pesquisa')
+            .then(response => response.json())
+            .then(linhas => {
+                selectLinha.innerHTML = '<option value="">-- Escolha uma Linha de Pesquisa --</option>';
+                let currentPrograma = "";
+                linhas.forEach(linha => {
+                    if (linha.programa !== currentPrograma) {
+                        const optgroup = document.createElement('optgroup');
+                        optgroup.label = linha.programa;
+                        selectLinha.appendChild(optgroup);
+                        currentPrograma = linha.programa;
+                    }
+                    const option = document.createElement('option');
+                    option.value = linha.id;
+                    option.textContent = linha.linha;
+                    selectLinha.querySelector(`optgroup[label="${linha.programa}"]`).appendChild(option);
+                });
+            });
+    }
+
+    function buscarTodosOsMatches() {
+        statusDiv.innerText = 'Buscando e calculando compatibilidade com a IA... Isso pode levar um momento.';
+        statusDiv.className = 'alert alert-warning';
+        fetch('/api/matches')
+            .then(response => response.json())
+            .then(data => {
+                todosOsMatches = data;
+                statusDiv.innerText = 'Pronto! Selecione uma linha de pesquisa para ver os resultados.';
+                statusDiv.className = 'alert alert-success';
+            })
+            .catch(error => {
+                statusDiv.innerText = 'Erro ao conectar com o motor de IA.';
+                statusDiv.className = 'alert alert-danger';
+            });
+    }
+
+    function exibirResultados() {
+        const linhaIdSelecionada = selectLinha.value;
+        corpoTabela.innerHTML = '';
+        if (!linhaIdSelecionada) {
+            tabela.style.display = 'none';
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = 'Selecione uma linha de pesquisa para ver os editais compatíveis.';
+            statusDiv.className = 'alert alert-info';
+            return;
+        }
+        statusDiv.style.display = 'none';
+        const matchesFiltrados = todosOsMatches.filter(match => match.linha_id == linhaIdSelecionada);
+        matchesFiltrados.sort((a, b) => b.score - a.score);
+        if (matchesFiltrados.length === 0) {
+            corpoTabela.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum edital compatível encontrado com os critérios atuais.</td></tr>';
+        } else {
+            matchesFiltrados.forEach(match => {
+                const scorePercentual = (match.score * 100).toFixed(2);
+                const corScore = scorePercentual >= 80 ? 'text-success fw-bold' : scorePercentual >= 70 ? 'text-warning fw-bold' : 'text-muted';
+                const linhaHtml = `
+                    <tr>
+                        <td>${match.edital_titulo}</td>
+                        <td>${match.programa}</td>
+                        <td class="${corScore}">${scorePercentual}%</td>
+                        <td>
+                            <button class="btn btn-sm btn-info" onclick="mostrarDetalhes(${match.edital_id})">
+                                <i class="bi bi-eye"></i> Detalhes
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                corpoTabela.innerHTML += linhaHtml;
+            });
+        }
+        tabela.style.display = 'table';
+    }
+
+    function mostrarDetalhes(editalId) {
+        const modalTitle = document.getElementById('editalModalTitle');
+        const modalBody = document.getElementById('editalModalBody');
+        const modalLink = document.getElementById('editalModalLink');
+        modalTitle.innerText = "Carregando...";
+        modalBody.innerHTML = "<p>Buscando informações do edital...</p>";
+        editalModal.show();
+        fetch(`/api/edital/${editalId}`)
+            .then(response => response.json())
+            .then(data => {
+                modalTitle.innerText = data.titulo;
+                modalBody.innerHTML = `
+                    <p><strong>Órgão:</strong> ${data.orgao}</p>
+                    <p><strong>Status:</strong> <span class="badge bg-success text-uppercase">${data.status}</span></p>
+                    <hr>
+                    <p><strong>Texto de Elegibilidade/Resumo:</strong></p>
+                    <p>${data.texto_pdf}</p>
+                `;
+                modalLink.href = data.link_pagina;
+            });
+    }
+
+    selectLinha.addEventListener('change', exibirResultados);
+    document.addEventListener('DOMContentLoaded', () => {
+        popularDropdown();
+        buscarTodosOsMatches();
+    });
 </script>
 {% endblock %}
+
