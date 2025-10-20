@@ -11,9 +11,6 @@ jobs:
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
-        with:
-          # --- MUDANÇA PRINCIPAL: Garante que as quebras de linha estão corretas ---
-          crlf: 'true'
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -21,15 +18,19 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Instalar dependências (com passo separado para Torch)
+      - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          # 1. Instala o torch e suas dependências primeiro, usando o link especial
           pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-          # 2. Instala o resto das bibliotecas do requirements.txt
           pip install -r requirements.txt
       
+      # --- MUDANÇA PRINCIPAL: Adiciona as variáveis de ambiente a partir dos Secrets ---
       - name: Executar script de atualização
+        env:
+          DB_TYPE: ${{ secrets.DB_TYPE }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          COLUNA_EDITAL_STATUS: ${{ secrets.COLUNA_EDITAL_STATUS }}
+          COLUNA_EDITAL_ELEGIBILIDADE: ${{ secrets.COLUNA_EDITAL_ELEGIBILIDADE }}
         run: python run_update.py
 
       - name: Commit e Push da base de dados atualizada
