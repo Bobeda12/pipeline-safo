@@ -4,9 +4,6 @@ venv/
 # Arquivo de segredos e configurações
 .env
 
-# Arquivos de banco de dados SQLite (não devem ir para o repositório)
-*.db
-
 # Arquivos temporários do Python
 __pycache__/
 *.pyc
