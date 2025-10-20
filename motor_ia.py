@@ -3,6 +3,11 @@ import numpy as np
 from sqlalchemy import create_engine, text
 import os
 
+# --- IMPORTS MOVIMENTADOS PARA O TOPO DO FICHEIRO ---
+# Estas bibliotecas precisam de estar sempre disponíveis
+from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
+
 class MotorDeCompatibilidade:
     """
     Encapsula toda a lógica de filtragem, cálculo de similaridade por IA e
@@ -24,8 +29,7 @@ class MotorDeCompatibilidade:
 
         if load_model:
             print("Carregando modelo de IA na memória (modo worker)...")
-            from sentence_transformers import SentenceTransformer
-            # Este import e a linha seguinte são pesados e só rodam no worker
+            # A inicialização do modelo pesado acontece apenas aqui
             self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
             print("Modelo de IA carregado com sucesso.")
         else:
@@ -83,6 +87,7 @@ class MotorDeCompatibilidade:
         textos_editais = (df_editais_elegiveis['titulo'] + '. ' + df_editais_elegiveis[self.coluna_elegibilidade]).tolist()
         embeddings_editais = self.model.encode(textos_editais, show_progress_bar=True)
         
+        # A função cosine_similarity agora está sempre disponível
         matriz_similaridade = cosine_similarity(embeddings_editais, embeddings_linhas_precalculados)
 
         lista_matches = []
