@@ -13,13 +13,14 @@ jobs:
     steps:
       # 1. Faz o checkout do seu código do repositório
       - name: Checkout do repositório
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       # 2. Configura o ambiente Python
       - name: Configurar Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # Adiciona cache para acelerar instalações futuras
 
       # 3. Instala todas as dependências do projeto
       - name: Instalar dependências
@@ -27,27 +28,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      # 4. Executa o nosso script de atualização
-      - name: Executar script de atualização (Crawler e IA)
+      # 4. Executa o nosso script de atualização (Crawler e IA)
+      - name: Executar script de atualização
         run: python run_update.py
 
       # 5. Faz o commit e push do ficheiro .db atualizado de volta para o repositório
       - name: Commit e Push da base de dados atualizada
-        run: |
-          git config --global user.name 'GitHub Actions Bot'
-          git config --global user.email 'actions@github.com'
-          git add .
-          git commit -m "Atualização automática da base de dados" || echo "Nenhuma alteração para commitar"
-          git push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Atualização automática da base de dados"
+          file_pattern: "*.db" # Apenas faz commit se ficheiros .db mudaram
 ```
 
----
+### O Que Mudou e Porquê?
 
-#### Passo 3: Finalizar e Enviar
+1.  **Sintaxe Corrigida:** A indentação de todo o ficheiro foi revisada para garantir que está correta.
+2.  **Passo de Commit Simplificado:** Em vez de usarmos comandos manuais de `git`, agora usamos uma action da comunidade (`stefanzweifel/git-auto-commit-action@v5`). Esta action é extremamente popular e confiável. Ela trata de todas as configurações de utilizador e permissões automaticamente, o que evita o erro de permissão que provavelmente encontraríamos a seguir.
 
-1.  **Envie todas estas alterações para o GitHub:**
+### O Que Fazer Agora
+
+1.  **Substitua** o conteúdo do seu ficheiro `.github/workflows/update_database.yml` pelo código acima.
+2.  **Envie a correção** para o seu repositório no GitHub:
     ```bash
     git add .
-    git commit -m "Adiciona workflow de atualização automática com GitHub Actions"
+    git commit -m "Corrige sintaxe do workflow da GitHub Action"
     git push
     
+
