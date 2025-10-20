@@ -38,20 +38,5 @@ jobs:
         with:
           commit_message: "Atualização automática da base de dados"
           file_pattern: "*.db" # Apenas faz commit se ficheiros .db mudaram
-```
-
-### O Que Mudou e Porquê?
-
-1.  **Sintaxe Corrigida:** A indentação de todo o ficheiro foi revisada para garantir que está correta.
-2.  **Passo de Commit Simplificado:** Em vez de usarmos comandos manuais de `git`, agora usamos uma action da comunidade (`stefanzweifel/git-auto-commit-action@v5`). Esta action é extremamente popular e confiável. Ela trata de todas as configurações de utilizador e permissões automaticamente, o que evita o erro de permissão que provavelmente encontraríamos a seguir.
-
-### O Que Fazer Agora
-
-1.  **Substitua** o conteúdo do seu ficheiro `.github/workflows/update_database.yml` pelo código acima.
-2.  **Envie a correção** para o seu repositório no GitHub:
-    ```bash
-    git add .
-    git commit -m "Corrige sintaxe do workflow da GitHub Action"
-    git push
     
 
