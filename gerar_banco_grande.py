@@ -1,3 +1,4 @@
+# gerar_banco_grande.py
 import sqlite3
 import random
 import time
@@ -12,15 +13,39 @@ NUM_USUARIOS = 10
 
 fake = Faker('pt_BR')
 
+# --- BASE DE CONHECIMENTO ---
 AREAS_CONHECIMENTO = [
-    {"area": "Inteligência Artificial", "programa": "PPGIA", "substantivos": ["algoritmos", "redes neurais", "aprendizado de máquina", "processamento de linguagem natural", "visão computacional"], "verbos": ["otimizar", "desenvolver", "implementar", "analisar", "automatizar"], "adjetivos": ["inteligente", "preditivo", "autônomo", "eficiente", "escalável"]},
-    {"area": "Computação Quântica", "programa": "PPGCQ", "substantivos": ["qubits", "algoritmos quânticos", "criptografia pós-quântica", "hardware quântico", "simulação de sistemas"], "verbos": ["projetar", "simular", "construir", "proteger", "acelerar"], "adjetivos": ["quântico", "seguro", "robusto", "inovador", "disruptivo"]},
-    {"area": "Energias Renováveis", "programa": "PPGER", "substantivos": ["energia solar", "energia eólica", "biomassa", "células fotovoltaicas", "redes inteligentes"], "verbos": ["gerar", "armazenar", "distribuir", "integrar", "sustentar"], "adjetivos": ["sustentável", "limpa", "renovável", "eficiente", "verde"]},
-    {"area": "Biotecnologia", "programa": "PPGBIO", "substantivos": ["engenharia genética", "terapias celulares", "biofármacos", "diagnóstico molecular", "biologia sintética"], "verbos": ["sintetizar", "diagnosticar", "tratar", "modificar", "cultivar"], "adjetivos": ["molecular", "genético", "terapêutico", "inovador", "biológico"]},
-    {"area": "Defesa Cibernética", "programa": "PPGDC", "substantivos": ["segurança de redes", "criptografia", "detecção de intrusão", "malware", "defesa ativa"], "verbos": ["proteger", "monitorar", "defender", "analisar", "mitigar"], "adjetivos": ["seguro", "resiliente", "cibernético", "estratégico", "confiável"]}
+    {
+        "area": "Inteligência Artificial", "programa": "PPGIA",
+        "substantivos": ["algoritmos", "redes neurais", "aprendizado de máquina", "processamento de linguagem natural", "visão computacional"],
+        "verbos": ["otimizar", "desenvolver", "implementar", "analisar", "automatizar"],
+        "adjetivos": ["inteligente", "preditivo", "autônomo", "eficiente", "escalável"]
+    },
+    {
+        "area": "Computação Quântica", "programa": "PPGCQ",
+        "substantivos": ["qubits", "algoritmos quânticos", "criptografia pós-quântica", "hardware quântico", "simulação de sistemas"],
+        "verbos": ["projetar", "simular", "construir", "proteger", "acelerar"],
+        "adjetivos": ["quântico", "seguro", "robusto", "inovador", "disruptivo"]
+    },
+    {
+        "area": "Energias Renováveis", "programa": "PPGER",
+        "substantivos": ["energia solar", "energia eólica", "biomassa", "células fotovoltaicas", "redes inteligentes"],
+        "verbos": ["gerar", "armazenar", "distribuir", "integrar", "sustentar"],
+        "adjetivos": ["sustentável", "limpa", "renovável", "eficiente", "verde"]
+    },
+    {
+        "area": "Biotecnologia", "programa": "PPGBIO",
+        "substantivos": ["engenharia genética", "terapias celulares", "biofármacos", "diagnóstico molecular", "biologia sintética"],
+        "verbos": ["sintetizar", "diagnosticar", "tratar", "modificar", "cultivar"],
+        "adjetivos": ["molecular", "genético", "terapêutico", "inovador", "biológico"]
+    }
 ]
 FRASES_ELEGIBILIDADE = [
-    "Este edital é aberto a toda instituição de ciência e tecnologia (ICT) do país.", "Universidades públicas e institutos de pesquisa são o público-alvo principal.", "Podem se inscrever pesquisadores vinculados a qualquer instituição de pesquisa nacional.", "Esta chamada é de uso exclusivo para empresas de base tecnológica e startups.", "Apenas startups e MEI podem se inscrever nesta oportunidade de fomento.", "Os critérios de elegibilidade estão detalhados no anexo IV do documento oficial.", "Proponentes devem consultar a seção 3.1 para detalhes completos de elegibilidade."
+    "Este edital é aberto a toda instituição de ciência e tecnologia (ICT) do país.",
+    "Universidades públicas e institutos de pesquisa são o público-alvo principal.",
+    "Podem se inscrever pesquisadores vinculados a qualquer instituição de pesquisa nacional.",
+    "Esta chamada é de uso exclusivo para empresas de base tecnológica e startups.",
+    "Apenas startups e MEI podem se inscrever nesta oportunidade de fomento."
 ]
 
 def gerar_linha_pesquisa(base):
@@ -30,23 +55,20 @@ def gerar_linha_pesquisa(base):
 
 def gerar_edital(base):
     titulo = f"Chamada Pública nº {random.randint(1, 99)}/2025 - Fomento a Projetos em {base['area']}"
-    texto_base = f"O presente edital visa selecionar propostas para apoio financeiro a projetos que contribuam para o desenvolvimento científico e tecnológico em {base['area']}. Serão consideradas propostas que busquem {random.choice(base['verbos'])} soluções em {random.choice(base['substantivos'])}. "
+    texto_base = f"O presente edital visa selecionar propostas para apoio financeiro a projetos... Serão consideradas propostas que busquem {random.choice(base['verbos'])} soluções em {random.choice(base['substantivos'])}. "
     frase_elegibilidade_aleatoria = random.choice(FRASES_ELEGIBILIDADE)
     texto_pdf = texto_base + " " + frase_elegibilidade_aleatoria
     return titulo, texto_pdf
 
 def criar_banco_grande():
     print(f"Iniciando a criação do banco de dados '{NOME_BANCO}'...")
-    start_time = time.time()
-    
     if os.path.exists(NOME_BANCO):
         os.remove(NOME_BANCO)
-        print("Banco de dados antigo removido.")
-
+    
     conn = sqlite3.connect(NOME_BANCO)
     cursor = conn.cursor()
-    
-    # Cria as tabelas na ordem correta (users primeiro)
+
+    # Criação de Tabelas
     cursor.execute("CREATE TABLE edital (id INTEGER PRIMARY KEY, titulo TEXT, orgao TEXT, link_pagina TEXT, texto_pdf TEXT, status TEXT);")
     cursor.execute("CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, password TEXT NOT NULL);")
     cursor.execute("""
@@ -56,25 +78,26 @@ def criar_banco_grande():
             FOREIGN KEY (user_id) REFERENCES users (id)
         );
     """)
-    
-    # Gerar Usuários
-    print(f"Gerando {NUM_USUARIOS} usuários de teste...")
-    usuarios_para_inserir = [('admin@ime.br', 'admin')]
-    for i in range(2, NUM_USUARIOS + 1):
-        usuarios_para_inserir.append((f'user{i}@ime.br', '123'))
-    cursor.executemany("INSERT OR IGNORE INTO users (email, password) VALUES (?, ?);", usuarios_para_inserir)
+    print("Tabelas criadas com sucesso.")
 
-    # Gerar Linhas de Pesquisa
+    # Geração de Utilizadores
+    print(f"Gerando {NUM_USUARIOS} utilizadores de teste...")
+    utilizadores_para_inserir = [('admin@ime.br', 'admin')]
+    for i in range(2, NUM_USUARIOS + 1):
+        utilizadores_para_inserir.append((f'user{i}@ime.br', '123'))
+    cursor.executemany("INSERT OR IGNORE INTO users (email, password) VALUES (?, ?);", utilizadores_para_inserir)
+
+    # Geração de Linhas de Pesquisa
     print(f"Gerando {NUM_LINHAS_PESQUISA} linhas de pesquisa...")
     linhas_para_inserir = []
     for _ in range(NUM_LINHAS_PESQUISA):
         base = random.choice(AREAS_CONHECIMENTO)
         linha, descricao = gerar_linha_pesquisa(base)
         user_id_aleatorio = random.randint(1, NUM_USUARIOS)
-        linhas_para_inserir.append((base['programa'], linha, descricao, fake.email(), None, user_id_aleatorio))
-    cursor.executemany("INSERT INTO linha_ime (programa, linha, descricao, emails_contato, embedding, user_id) VALUES (?, ?, ?, ?, ?, ?);", linhas_para_inserir)
-    
-    # Gerar Editais
+        linhas_para_inserir.append((base['programa'], linha, descricao, fake.email(), user_id_aleatorio))
+    cursor.executemany("INSERT INTO linha_ime (programa, linha, descricao, emails_contato, user_id) VALUES (?, ?, ?, ?, ?);", linhas_para_inserir)
+
+    # Geração de Editais
     print(f"Gerando {NUM_EDITAIS} editais...")
     editais_para_inserir = []
     for i in range(1, NUM_EDITAIS + 1):
@@ -85,10 +108,7 @@ def criar_banco_grande():
 
     conn.commit()
     conn.close()
-    
-    end_time = time.time()
-    print(f"\nBanco de dados '{NOME_BANCO}' criado com sucesso em {end_time - start_time:.2f} segundos.")
+    print("Banco de dados populado com sucesso.")
 
 if __name__ == '__main__':
     criar_banco_grande()
-
