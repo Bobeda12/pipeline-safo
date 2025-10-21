@@ -1,13 +1,10 @@
 name: Atualização Diária da Base de Dados
 
 on:
-  # Aciona a workflow todos os dias às 3:00 da manhã (horário UTC)
   schedule:
     - cron: '0 3 * * *'
-  # Permite que você acione a workflow manualmente a partir do site do GitHub
   workflow_dispatch:
 
-# Adiciona permissões de escrita para o job
 permissions:
   contents: write
 
@@ -15,36 +12,30 @@ jobs:
   update-db:
     runs-on: ubuntu-latest
     steps:
-      # 1. Faz o checkout do seu código do repositório
       - name: Checkout do repositório
         uses: actions/checkout@v4
 
-      # 2. Configura o ambiente Python
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      # 3. Instala as dependências de forma robusta
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
       
-      # 4. Executa o nosso script de atualização com as variáveis de ambiente
       - name: Executar script de atualização
-        env:
-          DB_TYPE: ${{ secrets.DB_TYPE }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          COLUNA_EDITAL_STATUS: ${{ secrets.COLUNA_EDITAL_STATUS }}
-          COLUNA_EDITAL_ELEGIBILIDADE: ${{ secrets.COLUNA_EDITAL_ELEGIBILIDADE }}
         run: python run_update.py
 
-      # 5. Faz o commit e push do ficheiro .db atualizado de volta para o repositório
       - name: Commit e Push da base de dados atualizada
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Atualização automática da base de dados"
           file_pattern: "*.db"
+
+      # --- PASSO FINAL: Aciona o deploy no Render ---
+      - name: Acionar Deploy Hook do Render
+        if: steps.autocommit.outputs.changes_detected == 'true'
+        run: curl ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
