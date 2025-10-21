@@ -21,9 +21,14 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
-      # --- MUDANÇA: Usa o mesmo comando que o Render ---
+      # --- MUDANÇA FINAL E DEFINITIVA ---
       - name: Instalar dependências
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          # 1. Instala o conjunto completo do PyTorch para CPU a partir do link especial
+          pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # 2. Instala o resto das bibliotecas
+          pip install -r requirements.txt
       
       - name: Executar script de atualização
         run: python run_update.py
