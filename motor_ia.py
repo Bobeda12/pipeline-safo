@@ -1,19 +1,20 @@
+# motor_ia.py
 import sqlite3
 import os
-import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+
+# As importações pesadas só serão chamadas dentro dos métodos que as usam
 
 class MotorDeCompatibilidade:
     def __init__(self, load_model=False):
         self.db_name = os.getenv("DB_NAME", "projeto_grande.db")
+        # Constrói o caminho para o DB na mesma pasta do script
         self.db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.db_name)
         self.model = None
 
         if load_model:
             print("Carregando modelo de IA (modo worker)...")
+            from sentence_transformers import SentenceTransformer
             self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
             print("Modelo de IA carregado.")
         else:
@@ -24,7 +25,7 @@ class MotorDeCompatibilidade:
         return sqlite3.connect(self.db_path)
 
     def _dict_factory(self, cursor, row):
-        """Converte uma linha do banco de dados em um dicionário."""
+        """Converte uma linha do banco de dados (tuple) em um dicionário."""
         d = {}
         for idx, col in enumerate(cursor.description):
             d[col[0]] = row[idx]
@@ -86,7 +87,7 @@ class MotorDeCompatibilidade:
             matches = cursor.execute("SELECT * FROM match").fetchall()
             conn.close()
             return matches
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError: # A tabela 'match' pode não existir
             conn.close()
             return []
 
@@ -98,20 +99,53 @@ class MotorDeCompatibilidade:
         conn.close()
         return detalhes
 
-    # Este método pesado continua a usar Pandas, pois só é chamado pelo worker
+    # Este método pesado continua a usar Pandas e SQLAlchemy, pois só é chamado pelo worker
     def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.60):
         if self.model is None:
-            raise Exception("Motor de IA não carregado.")
+            raise Exception("O motor de IA não foi carregado. Inicialize com load_model=True.")
         
+        from sqlalchemy import create_engine
+        import pandas as pd
+        from sklearn.metrics.pairwise import cosine_similarity
+
         engine = create_engine(f'sqlite:///{self.db_path}')
         df_editais = pd.read_sql_table('edital', engine)
         df_linhas = pd.read_sql_table('linha_ime', engine)
-
-        # A lógica de filtro e cálculo de similaridade com Pandas continua aqui...
-        # ...
         
-        # Exemplo simplificado para manter o código completo
-        # Substitua este bloco pelo código completo de encontrar_e_salvar_matches que já tínhamos
-        print("Lógica de encontrar e salvar matches executada (simulado).")
-        return 0
+        # Lógica de filtro e cálculo de similaridade
+        df_editais_abertos = df_editais[df_editais['status'] == 'aberto'].copy()
+        df_editais_elegiveis = self._filtrar_por_elegibilidade(df_editais_abertos)
+        if df_editais_elegiveis.empty: return 0
 
+        if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().any():
+             raise Exception("Embeddings não foram pré-calculados.")
+        
+        embeddings_linhas = np.array([np.frombuffer(blob, dtype=np.float32) for blob in df_linhas['embedding'].dropna()])
+        textos_editais = (df_editais_elegiveis['titulo'] + '. ' + df_editais_elegiveis['texto_pdf']).tolist()
+        embeddings_editais = self.model.encode(textos_editais, show_progress_bar=False)
+        matriz_similaridade = cosine_similarity(embeddings_editais, embeddings_linhas)
+
+        lista_matches = []
+        for idx_linha, linha in df_linhas.iterrows():
+            scores_para_esta_linha = matriz_similaridade[:, idx_linha]
+            indices_top_n = scores_para_esta_linha.argsort()[-top_n:][::-1]
+            for idx_edital in indices_top_n:
+                score = scores_para_esta_linha[idx_edital]
+                if score >= limiar_minimo:
+                    edital = df_editais_elegiveis.iloc[idx_edital]
+                    match = {
+                        'edital_id': int(edital['id']),
+                        'edital_titulo': edital['titulo'],
+                        'linha_id': int(linha['id']),
+                        'linha_nome': linha['linha'],
+                        'programa': linha['programa'],
+                        'score': round(float(score), 4)
+                    }
+                    lista_matches.append(match)
+        
+        if not lista_matches: return 0
+            
+        df_matches = pd.DataFrame(lista_matches).drop_duplicates()
+        with engine.connect() as connection:
+            df_matches.to_sql('match', connection, if_exists='replace', index=False)
+        return len(df_matches)
