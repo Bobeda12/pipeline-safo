@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -o errexit
 
-pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "Build concluído! Dependências instaladas."
+echo "Build concluído! Dependências instaladas a partir do requirements.txt mestre."
