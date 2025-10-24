@@ -10,3 +10,4 @@ __pycache__/
 
 # Arquivos de configuração do VSCode (opcional)
 .vscode/
+*.db

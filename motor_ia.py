@@ -1,151 +1,257 @@
 # motor_ia.py
-import sqlite3
 import os
 import numpy as np
+from sqlalchemy import create_engine, text
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
+import traceback # Para logs de erro mais detalhados
 
-# As importações pesadas só serão chamadas dentro dos métodos que as usam
+# --- Configuração do Banco de Dados ---
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("A variável de ambiente DATABASE_URL não foi configurada.")
+
+# Cria o engine do SQLAlchemy para PostgreSQL
+# Pode ser definido globalmente para reutilização
+try:
+    engine = create_engine(DATABASE_URL)
+except Exception as e:
+    print(f"Erro ao criar engine SQLAlchemy: {e}")
+    # Considerar lançar o erro ou ter um fallback dependendo do contexto
+    engine = None
 
 class MotorDeCompatibilidade:
     def __init__(self, load_model=False):
-        self.db_name = os.getenv("DB_NAME", "projeto_grande.db")
-        # Constrói o caminho para o DB na mesma pasta do script
-        self.db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.db_name)
-        self.model = None
+        """
+        Inicializa o motor.
+        load_model=True: Carrega o modelo SentenceTransformer (uso no worker).
+        load_model=False: Modo leve para a aplicação web.
+        """
+        self.engine = engine # Usa o engine global
+        if self.engine is None:
+             raise ConnectionError("Falha ao inicializar o engine do banco de dados.")
 
+        self.model = None
         if load_model:
             print("Carregando modelo de IA (modo worker)...")
-            from sentence_transformers import SentenceTransformer
-            self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
-            print("Modelo de IA carregado.")
+            try:
+                from sentence_transformers import SentenceTransformer
+                # Certifique-se de que o modelo está acessível/baixado no ambiente de execução
+                self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+                print("Modelo de IA carregado.")
+            except Exception as e:
+                print(f"Erro ao carregar o modelo SentenceTransformer: {e}")
+                self.model = None # Garante que o modelo não seja usado se falhar ao carregar
         else:
             print("Motor de IA em modo de leitura (ultra-leve).")
 
-    def _get_db_conn(self):
-        """Retorna uma conexão sqlite3 direta."""
-        return sqlite3.connect(self.db_path)
+    def _execute_query(self, query: str, params: dict = None, fetch_one=False, fetch_all=False):
+        """Função auxiliar para executar consultas SQL de forma segura."""
+        if not self.engine:
+            print("Erro: Engine do banco de dados não inicializado.")
+            return None
+        try:
+            with self.engine.connect() as connection:
+                result = connection.execute(text(query), params or {})
+                if fetch_one:
+                    row = result.fetchone()
+                    return dict(zip(result.keys(), row)) if row else None
+                elif fetch_all:
+                    rows = result.fetchall()
+                    keys = result.keys()
+                    return [dict(zip(keys, row)) for row in rows]
+                else: # Para INSERT, UPDATE, DELETE - inicia transação
+                     with connection.begin(): # Garante commit ou rollback
+                         # A execução já ocorreu, apenas garante a transação
+                         pass
+                     return True # Indica sucesso na execução
+        except Exception as e:
+            print(f"Erro ao executar query: {query} com params {params}. Erro: {e}")
+            traceback.print_exc() # Imprime stack trace para depuração
+            return None if (fetch_one or fetch_all) else False # Indica falha
 
-    def _dict_factory(self, cursor, row):
-        """Converte uma linha do banco de dados (tuple) em um dicionário."""
-        d = {}
-        for idx, col in enumerate(cursor.description):
-            d[col[0]] = row[idx]
-        return d
+    # --- Métodos de Acesso a Dados (Adaptados) ---
 
     def check_user(self, email, password):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        user = cursor.execute("SELECT * FROM users WHERE email = ? AND password = ?", (email, password)).fetchone()
-        conn.close()
-        return user
+        """Verifica as credenciais do usuário no banco de dados."""
+        query = "SELECT * FROM users WHERE email = :email AND password = :password"
+        params = {"email": email, "password": password}
+        return self._execute_query(query, params, fetch_one=True)
 
     def get_linhas_by_user(self, user_id):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        linhas = cursor.execute("SELECT * FROM linha_ime WHERE user_id = ? ORDER BY programa, linha", (user_id,)).fetchall()
-        conn.close()
-        return linhas
+        """Busca todas as linhas de pesquisa associadas a um user_id."""
+        query = "SELECT * FROM linha_ime WHERE user_id = :user_id ORDER BY programa, linha"
+        params = {"user_id": user_id}
+        return self._execute_query(query, params, fetch_all=True)
 
     def get_linha_by_id(self, linha_id, user_id):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        linha = cursor.execute("SELECT * FROM linha_ime WHERE id = ? AND user_id = ?", (linha_id, user_id)).fetchone()
-        conn.close()
-        return linha
+        """Busca uma linha de pesquisa específica pelo ID e user_id."""
+        query = "SELECT * FROM linha_ime WHERE id = :id AND user_id = :user_id"
+        params = {"id": linha_id, "user_id": user_id}
+        return self._execute_query(query, params, fetch_one=True)
 
     def add_linha(self, data, user_id):
-        conn = self._get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO linha_ime (programa, linha, descricao, emails_contato, user_id) VALUES (?, ?, ?, ?, ?)", 
-                       (data['programa'], data['linha'], data['descricao'], data['emails_contato'], user_id))
-        conn.commit()
-        conn.close()
+        """Adiciona uma nova linha de pesquisa."""
+        # Assume que 'data' é um dicionário com 'programa', 'linha', 'descricao', 'emails_contato'
+        query = """
+            INSERT INTO linha_ime (programa, linha, descricao, emails_contato, user_id)
+            VALUES (:programa, :linha, :descricao, :emails_contato, :user_id)
+        """
+        params = {**data, "user_id": user_id}
+        return self._execute_query(query, params)
 
     def update_linha(self, linha_id, data, user_id):
-        conn = self._get_db_conn()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE linha_ime SET programa = ?, linha = ?, descricao = ?, emails_contato = ? WHERE id = ? AND user_id = ?",
-                       (data['programa'], data['linha'], data['descricao'], data['emails_contato'], linha_id, user_id))
-        conn.commit()
-        conn.close()
+        """Atualiza uma linha de pesquisa existente."""
+        query = """
+            UPDATE linha_ime
+            SET programa = :programa, linha = :linha, descricao = :descricao, emails_contato = :emails_contato
+            WHERE id = :id AND user_id = :user_id
+        """
+        params = {**data, "id": linha_id, "user_id": user_id}
+        return self._execute_query(query, params)
 
     def obter_linhas_de_pesquisa_publico(self):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        linhas = cursor.execute("SELECT id, linha, programa FROM linha_ime ORDER BY programa, linha").fetchall()
-        conn.close()
-        return linhas
+        """Busca ID, linha e programa de todas as linhas para exibição pública."""
+        query = "SELECT id, linha, programa FROM linha_ime ORDER BY programa, linha"
+        return self._execute_query(query, fetch_all=True)
 
     def encontrar_matches_publico(self):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        try:
-            matches = cursor.execute("SELECT * FROM match").fetchall()
-            conn.close()
-            return matches
-        except sqlite3.OperationalError: # A tabela 'match' pode não existir
-            conn.close()
-            return []
+        """Busca todos os matches calculados para exibição pública."""
+        query = "SELECT * FROM match ORDER BY score DESC" # Ordenar aqui pode ser útil
+        return self._execute_query(query, fetch_all=True)
 
     def get_edital_details(self, edital_id):
-        conn = self._get_db_conn()
-        conn.row_factory = self._dict_factory
-        cursor = conn.cursor()
-        detalhes = cursor.execute("SELECT * FROM edital WHERE id = ?", (edital_id,)).fetchone()
-        conn.close()
-        return detalhes
+        """Busca detalhes de um edital específico pelo ID."""
+        query = "SELECT * FROM edital WHERE id = :id"
+        params = {"id": edital_id}
+        return self._execute_query(query, params, fetch_one=True)
 
-    # Este método pesado continua a usar Pandas e SQLAlchemy, pois só é chamado pelo worker
+    # --- Método Principal de Cálculo (Worker) ---
+
     def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.60):
+        """
+        Calcula a similaridade entre editais e linhas, salvando os melhores matches.
+        Esta função é PESADA e deve ser executada pelo worker (load_model=True).
+        """
         if self.model is None:
-            raise Exception("O motor de IA não foi carregado. Inicialize com load_model=True.")
-        
-        from sqlalchemy import create_engine
-        import pandas as pd
-        from sklearn.metrics.pairwise import cosine_similarity
+            print("Erro: Modelo de IA não carregado. Não é possível calcular matches.")
+            return 0
+        if not self.engine:
+            print("Erro: Engine do banco de dados não disponível.")
+            return 0
 
-        engine = create_engine(f'sqlite:///{self.db_path}')
-        df_editais = pd.read_sql_table('edital', engine)
-        df_linhas = pd.read_sql_table('linha_ime', engine)
-        
-        # Lógica de filtro e cálculo de similaridade
-        df_editais_abertos = df_editais[df_editais['status'] == 'aberto'].copy()
-        df_editais_elegiveis = self._filtrar_por_elegibilidade(df_editais_abertos)
-        if df_editais_elegiveis.empty: return 0
+        print("Calculando matches...")
+        start_time_calc = pd.Timestamp.now()
 
-        if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().any():
-             raise Exception("Embeddings não foram pré-calculados.")
-        
-        embeddings_linhas = np.array([np.frombuffer(blob, dtype=np.float32) for blob in df_linhas['embedding'].dropna()])
-        textos_editais = (df_editais_elegiveis['titulo'] + '. ' + df_editais_elegiveis['texto_pdf']).tolist()
-        embeddings_editais = self.model.encode(textos_editais, show_progress_bar=False)
-        matriz_similaridade = cosine_similarity(embeddings_editais, embeddings_linhas)
+        try:
+            # Carregar dados usando Pandas (eficiente para DataFrames)
+            df_editais = pd.read_sql_table('edital', self.engine)
+            # Lê embeddings como string no formato '[1.2,3.4,...]' ou array se o driver suportar
+            df_linhas = pd.read_sql_table('linha_ime', self.engine)
 
-        lista_matches = []
-        for idx_linha, linha in df_linhas.iterrows():
-            scores_para_esta_linha = matriz_similaridade[:, idx_linha]
-            indices_top_n = scores_para_esta_linha.argsort()[-top_n:][::-1]
-            for idx_edital in indices_top_n:
-                score = scores_para_esta_linha[idx_edital]
-                if score >= limiar_minimo:
-                    edital = df_editais_elegiveis.iloc[idx_edital]
-                    match = {
-                        'edital_id': int(edital['id']),
-                        'edital_titulo': edital['titulo'],
-                        'linha_id': int(linha['id']),
-                        'linha_nome': linha['linha'],
-                        'programa': linha['programa'],
-                        'score': round(float(score), 4)
-                    }
-                    lista_matches.append(match)
-        
-        if not lista_matches: return 0
-            
-        df_matches = pd.DataFrame(lista_matches).drop_duplicates()
-        with engine.connect() as connection:
-            df_matches.to_sql('match', connection, if_exists='replace', index=False)
-        return len(df_matches)
+            # Filtrar editais abertos
+            df_editais_abertos = df_editais[df_editais['status'].str.lower() == 'aberto'].copy()
+            if df_editais_abertos.empty:
+                print("Nenhum edital aberto encontrado.")
+                return 0
+
+            # Lidar com embeddings ausentes ou em formato incorreto
+            if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
+                 print("Erro: Coluna 'embedding' não encontrada ou está vazia na tabela 'linha_ime'. Pré-calcule os embeddings.")
+                 return 0
+
+            # Converter embeddings da string '[1.2,3.4,...]' para numpy array
+            # NOTA: Se usar pgvector nativamente, a query de similaridade seria feita no DB.
+            valid_embeddings = []
+            valid_indices = []
+            for index, emb_str in df_linhas['embedding'].items():
+                if isinstance(emb_str, str) and emb_str.startswith('[') and emb_str.endswith(']'):
+                    try:
+                        # Remove colchetes e divide pela vírgula
+                        emb_array = np.fromstring(emb_str[1:-1], sep=',', dtype=np.float32)
+                        # Verifique se a dimensão está correta (ex: 768)
+                        if emb_array.shape == (768,):
+                            valid_embeddings.append(emb_array)
+                            valid_indices.append(index) # Guarda o índice original do DataFrame
+                        else:
+                            print(f"Alerta: Embedding da linha ID {df_linhas.loc[index, 'id']} tem dimensão incorreta {emb_array.shape}, ignorando.")
+                    except ValueError:
+                         print(f"Alerta: Falha ao converter embedding da linha ID {df_linhas.loc[index, 'id']}, ignorando.")
+                elif isinstance(emb_str, (np.ndarray, list)): # Se já vier como array/lista
+                     emb_array = np.array(emb_str, dtype=np.float32)
+                     if emb_array.shape == (768,):
+                         valid_embeddings.append(emb_array)
+                         valid_indices.append(index)
+                     else:
+                          print(f"Alerta: Embedding (já array) da linha ID {df_linhas.loc[index, 'id']} tem dimensão incorreta {emb_array.shape}, ignorando.")
+                else:
+                    print(f"Alerta: Embedding da linha ID {df_linhas.loc[index, 'id']} está em formato inválido ou nulo, ignorando.")
+
+
+            if not valid_embeddings:
+                print("Nenhum embedding válido encontrado nas linhas de pesquisa.")
+                return 0
+
+            embeddings_linhas = np.array(valid_embeddings)
+            df_linhas_validas = df_linhas.loc[valid_indices] # DataFrame apenas com linhas que têm embeddings válidos
+
+            # Calcular embeddings para os textos dos editais
+            textos_editais = (df_editais_abertos['titulo'].fillna('') + '. ' + df_editais_abertos['texto_pdf'].fillna('')).tolist()
+            if not textos_editais:
+                 print("Nenhum texto de edital encontrado para processar.")
+                 return 0
+
+            embeddings_editais = self.model.encode(textos_editais, show_progress_bar=True)
+
+            # Calcular similaridade de cosseno
+            matriz_similaridade = cosine_similarity(embeddings_editais, embeddings_linhas)
+
+            # Encontrar os top N matches para cada linha de pesquisa válida
+            lista_matches = []
+            current_time = pd.Timestamp.now(tz='UTC') # Usar timezone aware para timestamptz
+
+            for idx_linha_matriz, idx_df_original in enumerate(valid_indices):
+                linha = df_linhas_validas.loc[idx_df_original] # Pega a linha original do df_linhas_validas
+                scores_para_esta_linha = matriz_similaridade[:, idx_linha_matriz]
+                # Pega os índices dos editais com maiores scores para esta linha
+                indices_top_n_editais = np.argsort(scores_para_esta_linha)[-top_n:][::-1]
+
+                for idx_edital_matriz in indices_top_n_editais:
+                    score = scores_para_esta_linha[idx_edital_matriz]
+                    if score >= limiar_minimo:
+                        # Obtém o edital correspondente do DataFrame de editais abertos
+                        edital = df_editais_abertos.iloc[idx_edital_matriz]
+                        match = {
+                            'edital_id': int(edital['id']),
+                            'edital_titulo': edital['titulo'],
+                            'linha_id': int(linha['id']),
+                            'linha_nome': linha['linha'],
+                            'programa': linha['programa'],
+                            'score': round(float(score), 4),
+                            'data_calculo': current_time, # Adiciona timestamp
+                            'notificado': False          # Adiciona flag de notificação
+                        }
+                        lista_matches.append(match)
+
+            if not lista_matches:
+                print("Nenhum match encontrado acima do limiar.")
+                return 0
+
+            # Salvar no banco de dados, substituindo a tabela 'match'
+            df_matches = pd.DataFrame(lista_matches).drop_duplicates()
+            with self.engine.connect() as connection:
+                # Usar transação para garantir atomicidade
+                with connection.begin():
+                    # Opcional: Limpar tabela antiga antes de inserir (se if_exists='replace' não funcionar como esperado)
+                    # connection.execute(text("DELETE FROM match"))
+                    df_matches.to_sql('match', connection, if_exists='replace', index=False,
+                                      dtype={'data_calculo': pd.TIMESTAMP(timezone=True)}) # Especifica o tipo para timestamp com timezone
+            print(f"Salvos {len(df_matches)} matches no banco de dados.")
+            end_time_calc = pd.Timestamp.now()
+            print(f"Cálculo e salvamento de matches concluído em {(end_time_calc - start_time_calc).total_seconds():.2f} segundos.")
+            return len(df_matches)
+
+        except Exception as e:
+            print(f"Erro GERAL ao encontrar e salvar matches: {e}")
+            traceback.print_exc()
+            return 0
