@@ -64,6 +64,133 @@ class MotorDeCompatibilidade:
             d[col[0]] = row[idx]
         return d
 
+    # --- NOVO MÉTODO: Criar tabelas se não existirem ---
+    def create_tables_if_not_exist(self):
+        """
+        Cria todas as tabelas necessárias (users, edital, linha_ime, match)
+        se elas ainda não existirem no banco de dados.
+        """
+        conn = self._get_db_conn()
+        if not conn:
+            print("ERRO CRÍTICO: Não foi possível conectar ao DB para criar tabelas.")
+            return
+        try:
+            cursor = conn.cursor()
+            print("[DB Setup] Verificando e criando tabelas se não existirem...")
+            
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                email TEXT UNIQUE NOT NULL, 
+                password TEXT NOT NULL
+            );""")
+            
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS edital (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titulo TEXT,
+                orgao TEXT,
+                link_pagina TEXT UNIQUE, -- Chave única para evitar duplicatas
+                texto_pdf TEXT,
+                status TEXT,
+                modalidade TEXT,
+                prazo_submissao DATETIME,
+                valor_estimado TEXT,
+                elegibilidade TEXT,
+                areas_tema TEXT,
+                data_captura DATETIME DEFAULT CURRENT_TIMESTAMP
+            );""")
+            
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS linha_ime (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                programa TEXT,
+                linha TEXT,
+                descricao TEXT,
+                emails_contato TEXT,
+                embedding BLOB,
+                user_id INTEGER,
+                FOREIGN KEY (user_id) REFERENCES users (id)
+            );""")
+            
+            cursor.execute("""
+            CREATE TABLE IF NOT EXISTS match (
+                edital_id INTEGER,
+                edital_titulo TEXT,
+                linha_id INTEGER,
+                linha_nome TEXT,
+                programa TEXT,
+                score REAL,
+                notificado BOOLEAN DEFAULT FALSE,
+                data_calculo DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (edital_id) REFERENCES edital (id),
+                FOREIGN KEY (linha_id) REFERENCES linha_ime (id)
+            );""")
+            
+            conn.commit()
+            print("[DB Setup] Tabelas verificadas/criadas com sucesso.")
+        except sqlite3.Error as e:
+            print(f"Erro ao criar tabelas: {e}")
+            conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+    # --- NOVO MÉTODO: Checar duplicata de edital ---
+    def check_edital_exists(self, link_pagina):
+        """Verifica se um edital com o mesmo link_pagina já existe."""
+        conn = self._get_db_conn()
+        if not conn: return False
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM edital WHERE link_pagina = ?", (link_pagina,))
+            exists = cursor.fetchone()
+            conn.close()
+            return exists is not None
+        except sqlite3.Error as e:
+            print(f"Erro ao checar edital: {e}")
+            if conn: conn.close()
+            return False # Assume que não existe em caso de erro
+
+    # --- NOVO MÉTODO: Inserir edital processado ---
+    def insert_edital(self, edital_data):
+        """
+        Insere um único edital processado no banco de dados.
+        Espera um dicionário com chaves correspondentes às colunas da tabela 'edital'.
+        """
+        conn = self._get_db_conn()
+        if not conn:
+            print(f"Erro de DB: Não foi possível inserir edital {edital_data.get('titulo')}")
+            return False
+        
+        query = """
+        INSERT INTO edital (
+            titulo, orgao, link_pagina, texto_pdf, status, modalidade, 
+            prazo_submissao, valor_estimado, elegibilidade, areas_tema, data_captura
+        ) VALUES (
+            :titulo, :orgao, :link_pagina, :texto_pdf, :status, :modalidade, 
+            :prazo_submissao, :valor_estimado, :elegibilidade, :areas_tema, :data_captura
+        )
+        """
+        try:
+            cursor = conn.cursor()
+            cursor.execute(query, edital_data)
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.IntegrityError:
+            # Isso pode acontecer se houver uma condição de corrida, 
+            # mas a checagem anterior (check_edital_exists) deve prevenir 99%
+            print(f"Aviso: Edital {edital_data.get('link_pagina')} já existia (IntegrityError).")
+            conn.rollback()
+            conn.close()
+            return False
+        except sqlite3.Error as e:
+            print(f"Erro ao inserir edital {edital_data.get('titulo')}: {e}")
+            conn.rollback()
+            conn.close()
+            return False
+
     # --- Métodos de Usuário (Atualizados com Hashing) ---
     def check_user(self, email, password):
         """Verifica o email e a senha (comparando o hash) no banco."""
@@ -254,7 +381,12 @@ class MotorDeCompatibilidade:
 
         conn_pd = None
         try:
+            # --- CORREÇÃO FINAL: Conexão para Pandas NÃO DEVE ter row_factory ---
+            # Voltamos a usar a conexão direta do sqlite3 para o pandas,
+            # pois ele não é compatível com o _get_db_conn() que usa row_factory.
             conn_pd = sqlite3.connect(self.db_path)
+            # --- FIM DA CORREÇÃO ---
+            
             df_editais = pd.read_sql_query("SELECT * FROM edital", conn_pd)
             df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn_pd)
         except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
@@ -264,6 +396,9 @@ class MotorDeCompatibilidade:
             return 0
         finally:
             if conn_pd: conn_pd.close()
+
+        # ... (Restante do método de cálculo de similaridade mantido igual) ...
+        # ... (O código é robusto e lerá os dados reais que o crawler inseriu) ...
 
         print(f"Primeiras 5 linhas lidas da tabela 'edital':")
         print(df_editais.head())
@@ -287,7 +422,20 @@ class MotorDeCompatibilidade:
 
         if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
              print("AVISO: Coluna 'embedding' faltando ou vazia.")
-             return 0
+             print("Executando cálculo de embedding para linhas pendentes...")
+             self.calcular_embeddings_pendentes() # Chama o cálculo
+             
+             # Tenta recarregar os dados
+             try:
+                 conn_pd = sqlite3.connect(self.db_path)
+                 df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn_pd)
+             finally:
+                 if conn_pd: conn_pd.close()
+                 
+             if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
+                 print("ERRO: Mesmo após recalcular, embeddings não foram encontrados.")
+                 return 0
+
 
         embeddings_linhas = []
         df_linhas_com_embedding = df_linhas.dropna(subset=['embedding']).copy()
@@ -368,4 +516,85 @@ class MotorDeCompatibilidade:
             return 0
         finally:
             if conn_save: conn_save.close()
+
+    # --- NOVO MÉTODO: Calcular embeddings pendentes ---
+    def calcular_embeddings_pendentes(self):
+        """
+        Calcula e salva embeddings para qualquer 'linha_ime' que esteja com
+        o campo 'embedding' como NULL.
+        """
+        if self.model is None:
+            print("Modelo de IA não carregado. Não é possível calcular embeddings.")
+            return 0
+            
+        # --- CORREÇÃO: Conexão para Pandas NÃO DEVE ter row_factory ---
+        # Usar o db_path diretamente para o Pandas
+        conn_pd = None
+        print("[Embeddings] Buscando linhas de pesquisa com embeddings pendentes...")
+        try:
+            # Criar uma conexão limpa SÓ PARA O PANDAS
+            conn_pd = sqlite3.connect(self.db_path)
+            df_linhas_pendentes = pd.read_sql_query(
+                "SELECT id, descricao FROM linha_ime WHERE embedding IS NULL AND (descricao IS NOT NULL AND descricao != '')", 
+                conn_pd # <-- Usar a conexão limpa
+            )
+        except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
+            print(f"Erro ao ler linhas pendentes: {e}")
+            if conn_pd:
+                conn_pd.close()
+            return 0
+        finally:
+            # Fechar a conexão do pandas
+            if conn_pd:
+                conn_pd.close()
+
+        if df_linhas_pendentes.empty:
+            print("[Embeddings] Nenhuma linha de pesquisa pendente encontrada.")
+            # Não precisamos fechar 'conn' aqui, pois 'conn_pd' já foi fechada.
+            return 0
+
+        print(f"[Embeddings] Calculando embeddings para {len(df_linhas_pendentes)} linhas...")
+        try:
+            embeddings = self.model.encode(df_linhas_pendentes['descricao'].tolist(), show_progress_bar=True)
+            print("[Embeddings] Cálculo concluído. Salvando no banco de dados...")
+        except Exception as e:
+            print(f"Erro durante o encode do modelo: {e}")
+            # conn.close() foi removido daqui pois 'conn' não existe neste escopo
+            return 0
+
+        # Salvar embeddings no banco
+        embeddings_saved_count = 0
+        update_data = []
+
+        # --- CORREÇÃO: Usar tolist() para evitar problemas de indexação com iloc ---
+        # Criamos uma lista de IDs que corresponde à ordem dos embeddings
+        ids_list = df_linhas_pendentes['id'].tolist()
+
+        for index, embedding in enumerate(embeddings):
+            # Usamos o 'index' para pegar o ID da 'ids_list' na mesma ordem
+            linha_id = int(ids_list[index])
+            embedding_blob = embedding.astype(np.float32).tobytes()
+            update_data.append((embedding_blob, linha_id))
+
+        # --- CORREÇÃO: Obter uma nova conexão (com row_factory) SÓ PARA SALVAR ---
+        conn_save = self._get_db_conn()
+        if not conn_save:
+            print("Erro de DB: Não foi possível conectar para salvar embeddings.")
+            return 0
+            
+        try:
+            cursor = conn_save.cursor()
+            cursor.executemany("UPDATE linha_ime SET embedding = ? WHERE id = ?", update_data)
+            conn_save.commit()
+            embeddings_saved_count = len(update_data)
+        except sqlite3.Error as update_err:
+             print(f"Erro ao salvar embeddings em lote: {update_err}")
+             conn_save.rollback()
+        finally:
+             conn_save.close() # <-- Fechar a conn_save
+
+        print(f"[Embeddings] {embeddings_saved_count}/{len(df_linhas_pendentes)} Embeddings salvos.")
+        return embeddings_saved_count
+
+
 
