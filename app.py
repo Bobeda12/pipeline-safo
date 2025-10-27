@@ -5,22 +5,27 @@ from motor_ia import MotorDeCompatibilidade
 from functools import wraps
 import os
 import datetime # Para conversão de data/hora
+import traceback # Para log de erros
 
 load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "uma-chave-secreta-muito-forte-local")
 
 print("Inicializando o motor de IA em modo local...")
-motor = MotorDeCompatibilidade(load_model=True) # Carrega o modelo localmente
+# *** CORREÇÃO: Carregar o modelo de IA localmente (load_model=True) ***
+motor = MotorDeCompatibilidade(load_model=True) 
 if motor.model is None:
-     print("AVISO: Modelo de IA não carregado. Cálculo de similaridade pode falhar se não pré-calculado.")
+     print("AVISO: Modelo de IA não carregado. O cálculo de similaridade em tempo real não funcionará.")
+else:
+    print("Motor em modo local completo (modelo de IA carregado).")
+
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
             flash("Você precisa fazer login para acessar esta página.", "warning")
-            return redirect(url_for('home'))
+            return redirect(url_for('login')) 
         return f(*args, **kwargs)
     return decorated_function
 
@@ -28,6 +33,70 @@ def login_required(f):
 @app.route('/')
 def home():
     return render_template('index.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+
+        if not email or not password:
+            flash("E-mail e senha são obrigatórios.", "danger")
+            return render_template('login.html')
+
+        user = motor.check_user(email, password) # motor.check_user agora verifica o hash
+
+        if user:
+            session['user_id'] = user['id']
+            session['user_email'] = user['email']
+            flash(f"Login realizado com sucesso! Bem-vindo, {user['email']}.", "success")
+            return redirect(url_for('home'))
+        else:
+            flash("E-mail ou senha inválidos.", "danger")
+            return render_template('login.html')
+    
+    # Método GET
+    return render_template('login.html')
+
+# *** Rota de Registro RESTAURADA ***
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+
+        if not email or not password or not confirm_password:
+            flash("Todos os campos são obrigatórios.", "danger")
+            return render_template('register.html')
+        
+        if password != confirm_password:
+            flash("As senhas não coincidem.", "danger")
+            return render_template('register.html')
+        
+        if len(password) <= 4:
+             flash("Senha muito curta (precisa ter mais de 4 caracteres).", "danger")
+             return render_template('register.html')
+
+        success, message = motor.add_user(email, password) # motor.add_user salva o hash
+
+        if success:
+            flash("Conta criada com sucesso! Você já pode fazer login.", "success")
+            return redirect(url_for('login'))
+        else:
+            flash(message, "danger") # Mensagem de erro (ex: "E-mail já cadastrado")
+            return render_template('register.html')
+
+    # Método GET
+    return render_template('register.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash("Você saiu do sistema.", "success")
+    return redirect(url_for('home'))
+
 
 # Rotas para Linhas de Pesquisa (Protegidas)
 @app.route('/linhas')
@@ -53,9 +122,7 @@ def adicionar_linha():
              return render_template('linha_form.html', titulo="Adicionar Nova Linha de Pesquisa", linha=nova_linha_data)
         try:
             motor.add_linha(nova_linha_data, user_id)
-            flash("Nova linha de pesquisa adicionada! Pode levar um tempo para os embeddings serem calculados.", "success")
-             # Idealmente, aqui você dispararia um recálculo de embeddings/matches
-             # Para simplificar, o usuário terá que rodar run_update.py manualmente
+            flash("Nova linha de pesquisa adicionada! O recálculo dos matches pode levar alguns minutos.", "success")
             return redirect(url_for('listar_linhas'))
         except Exception as e:
             flash(f"Erro ao adicionar linha: {e}", "danger")
@@ -81,139 +148,107 @@ def editar_linha(linha_id):
         }
         if not dados_atualizados['programa'] or not dados_atualizados['linha'] or not dados_atualizados['descricao']:
              flash("Programa, Linha e Descrição são obrigatórios.", "danger")
-             # Passa os dados *não salvos* de volta para o formulário
-             dados_atualizados['id'] = linha_id # Mantém o ID
+             dados_atualizados['id'] = linha_id 
              return render_template('linha_form.html', titulo="Editar Linha de Pesquisa", linha=dados_atualizados)
         try:
             motor.update_linha(linha_id, dados_atualizados, user_id)
-            flash("Linha de pesquisa atualizada! Pode levar um tempo para os embeddings serem recalculados.", "success")
-             # Idealmente, aqui você dispararia um recálculo de embeddings/matches
+            flash("Linha de pesquisa atualizada! O recálculo dos matches pode levar alguns minutos.", "success")
             return redirect(url_for('listar_linhas'))
         except Exception as e:
              flash(f"Erro ao atualizar linha: {e}", "danger")
-             # Passa os dados *não salvos* de volta para o formulário
-             dados_atualizados['id'] = linha_id # Mantém o ID
+             dados_atualizados['id'] = linha_id
              return render_template('linha_form.html', titulo="Editar Linha de Pesquisa", linha=dados_atualizados)
 
-    # GET request: apenas exibe o formulário com os dados existentes
     return render_template('linha_form.html', titulo="Editar Linha de Pesquisa", linha=linha)
 
 
 # --- Rotas da API (Públicas ou chamadas via JS) ---
 
-# API para Login (usada pelo modal via Fetch)
-@app.route('/api/login', methods=['POST'])
-def api_login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email or not password:
-        return jsonify({"success": False, "message": "E-mail e senha são obrigatórios."}), 400
-
-    user = motor.check_user(email, password) # motor.check_user agora verifica o hash
-
-    if user:
-        session['user_id'] = user['id']
-        session['user_email'] = user['email']
-        return jsonify({
-            "success": True,
-            "message": "Login realizado com sucesso!",
-            "user_email": user['email']
-        })
-    else:
-        return jsonify({"success": False, "message": "E-mail ou senha inválidos."}), 401
-
-# API para Cadastro (usada pelo modal via Fetch)
-@app.route('/api/register', methods=['POST'])
-def api_register():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-
-    if not email or not password:
-        return jsonify({"success": False, "message": "E-mail e senha são obrigatórios para cadastro."}), 400
-
-    # Adicionar validações extras se necessário (formato do email, força da senha)
-    if len(password) <= 4:
-         return jsonify({"success": False, "message": "Senha muito curta (precisa ter mais de 4 caracteres)."}), 400
-
-    success, message = motor.add_user(email, password) # motor.add_user salva o hash
-
-    if success:
-        return jsonify({"success": True, "message": message})
-    else:
-        # Retorna 409 (Conflict) se o email já existe, 500 para outros erros
-        status_code = 409 if "já está cadastrado" in message else 500
-        return jsonify({"success": False, "message": message}), status_code
-
-# Rota para Logout
-@app.route('/logout')
-def logout():
-    session.clear()
-    # Retorna JSON para a chamada Fetch do JavaScript
-    return jsonify({"success": True, "message": "Logout realizado com sucesso."})
-
-
-# --- Rotas API para dados do Dashboard ---
-
 # Função auxiliar para converter tipos não serializáveis
 def make_serializable(obj):
     if isinstance(obj, (datetime.datetime, datetime.date)):
         return obj.isoformat()
-    # Adicione outras conversões se necessário (ex: BLOB para string base64 se for enviar embeddings)
-    # No caso de BLOB de embedding, provavelmente NÃO queremos enviá-lo via API
     if isinstance(obj, bytes):
-        return None # Ou alguma representação, mas geralmente não é útil
+        return None 
     raise TypeError(f"Tipo {type(obj)} não é serializável em JSON")
 
 @app.route('/api/linhas-de-pesquisa')
 def get_linhas_de_pesquisa():
-    linhas = motor.obter_linhas_de_pesquisa_publico()
-    # Retorna diretamente, pois os dados (id, linha, programa) são serializáveis
-    return jsonify(linhas)
+    # --- ADICIONADO DEBUG ---
+    print("\n--- [DEBUG] API: Rota /api/linhas-de-pesquisa FOI CHAMADA ---")
+    try:
+        linhas = motor.obter_linhas_de_pesquisa_publico()
+        print(f"--- [DEBUG] API: motor.obter_linhas_de_pesquisa_publico() retornou {len(linhas)} linhas.")
+        
+        if not linhas:
+            print(f"--- [DEBUG] API: AVISO: Nenhuma linha encontrada.")
+            print(f"--- [DEBUG] API: Verificando se o DB existe em: {motor.db_path}")
+            if not os.path.exists(motor.db_path):
+                print(f"--- [DEBUG] API: ERRO FATAL: O arquivo de banco de dados NÃO EXISTE em '{motor.db_path}'.")
+                print(f"--- [DEBUG] API: POR FAVOR, RODE 'python run_update.py' PRIMEIRO E TENTE NOVAMENTE. ---")
+            else:
+                 print(f"--- [DEBUG] API: O DB existe. A tabela 'linha_ime' pode estar vazia ou 'run_update.py' falhou ao popular.")
+        
+        return jsonify(linhas)
+    
+    except Exception as e:
+        print(f"--- [DEBUG] API: ERRO CRÍTICO em get_linhas_de_pesquisa: {e} ---")
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    # --- FIM DEBUG ---
 
 @app.route('/api/matches')
 def get_matches():
-    matches = motor.encontrar_matches_publico()
-     # Converte datas/outros tipos se necessário antes de retornar JSON
+    # --- ADICIONADO DEBUG ---
+    print("\n--- [DEBUG] API: Rota /api/matches FOI CHAMADA ---")
     try:
+        matches = motor.encontrar_matches_publico()
+        print(f"--- [DEBUG] API: motor.encontrar_matches_publico() retornou {len(matches)} matches.")
+        if not matches:
+            print(f"--- [DEBUG] API: AVISO: Nenhum match encontrado. Verifique se 'run_update.py' completou a 'Etapa 4'.")
+
+         # Converte datas/outros tipos se necessário antes de retornar JSON
         serializable_matches = []
         for match in matches:
-             # Converte score para float padrão (se não for)
              match['score'] = float(match['score']) if match.get('score') is not None else 0.0
-             # Converte notificado para boolean (se não for)
              match['notificado'] = bool(match['notificado']) if match.get('notificado') is not None else False
-             # Adicione conversões de data se a tabela match tiver colunas de data
              serializable_matches.append(match)
         return jsonify(serializable_matches)
+    
     except Exception as e:
-         print(f"Erro ao serializar matches: {e}")
+         print(f"--- [DEBUG] API: ERRO CRÍTICO em get_matches: {e} ---")
          traceback.print_exc()
          return jsonify({"error": "Erro ao processar dados de matches"}), 500
+    # --- FIM DEBUG ---
 
 
 @app.route('/api/edital/<int:edital_id>')
 def get_edital_details_api(edital_id):
-    detalhes = motor.get_edital_details(edital_id)
-    if detalhes:
-        # Usa a função auxiliar para garantir que datas sejam convertidas para string ISO
-        try:
-            # Não é mais necessário iterar e converter manualmente aqui se o motor já retorna dict
-            # Precisamos garantir que _dict_factory ou a conversão no motor funcione bem com datas
-            # A função get_edital_details já tenta converter para datetime, jsonify vai converter para ISO
-            return jsonify(detalhes)
-        except TypeError as e:
-             print(f"Erro ao serializar detalhes do edital {edital_id}: {e}")
-             # Tenta serializar manualmente como fallback
-             try:
-                 serializable_details = {k: make_serializable(v) if isinstance(v, (datetime.datetime, bytes)) else v for k, v in detalhes.items()}
-                 return jsonify(serializable_details)
-             except Exception as inner_e:
-                  print(f"Erro na serialização manual do edital {edital_id}: {inner_e}")
-                  return jsonify({"error": f"Erro ao processar detalhes do edital: {inner_e}"}), 500
-    else:
-        abort(404, description="Edital não encontrado") # Retorna 404
+    # --- ADICIONADO DEBUG ---
+    print(f"\n--- [DEBUG] API: Rota /api/edital/{edital_id} FOI CHAMADA ---")
+    try:
+        detalhes = motor.get_edital_details(edital_id)
+        if detalhes:
+            print(f"--- [DEBUG] API: Encontrado edital ID {edital_id}: {detalhes.get('titulo')}")
+            # Tenta serializar, convertendo datas/bytes que o jsonify padrão não lida
+            serializable_details = {}
+            for k, v in detalhes.items():
+                if isinstance(v, (datetime.datetime, datetime.date)):
+                    serializable_details[k] = v.isoformat()
+                elif isinstance(v, bytes):
+                    serializable_details[k] = None # Ignora bytes (ex: embeddings)
+                else:
+                    serializable_details[k] = v
+            return jsonify(serializable_details)
+        else:
+            print(f"--- [DEBUG] API: ERRO: Edital ID {edital_id} NÃO ENCONTRADO.")
+            abort(404, description="Edital não encontrado") # Retorna 404
+            
+    except Exception as e:
+         print(f"--- [DEBUG] API: ERRO CRÍTICO em get_edital_details_api (ID: {edital_id}): {e} ---")
+         traceback.print_exc()
+         return jsonify({"error": f"Erro ao processar detalhes do edital: {e}"}), 500
+    # --- FIM DEBUG ---
 
 
 if __name__ == '__main__':

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Criar Conta{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-header text-center h4">
+                Criar Nova Conta
+            </div>
+            <div class="card-body p-4">
+
+                <!-- Exibe mensagens flash (ex: senhas não coincidem) -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <form method="post" action="{{ url_for('register') }}" id="registerForm" onsubmit="return validatePasswords()">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">E-mail Institucional</label>
+                        <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Senha</label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="password" name="password" required autocomplete="new-password">
+                            <span class="input-group-text">
+                                <i class="bi bi-eye-slash toggle-password" id="togglePassword" onclick="togglePasswordVisibility('password', 'togglePassword')"></i>
+                            </span>
+                        </div>
+                        <small class="form-text text-muted">A senha deve ter mais de 4 caracteres.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="confirm_password" class="form-label">Confirmar Senha</label>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required autocomplete="new-password">
+                            <span class="input-group-text">
+                                <i class="bi bi-eye-slash toggle-password" id="toggleConfirmPassword" onclick="togglePasswordVisibility('confirm_password', 'toggleConfirmPassword')"></i>
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div id="password-mismatch-alert" class="alert alert-danger" role="alert" style="display: none;">
+                        As senhas não coincidem!
+                    </div>
+
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-success btn-lg">Criar Conta</button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-footer text-muted text-center">
+                <small>Já tem uma conta? <a href="{{ url_for('login') }}">Faça login</a>.</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function validatePasswords() {
+        const password = document.getElementById('password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const alertDiv = document.getElementById('password-mismatch-alert');
+
+        if (password !== confirmPassword) {
+            if (alertDiv) alertDiv.style.display = 'block';
+            return false; // Impede o envio do formulário
+        }
+        
+        if (alertDiv) alertDiv.style.display = 'none';
+        return true; // Permite o envio do formulário
+    }
+</script>
+{% endblock %}
+

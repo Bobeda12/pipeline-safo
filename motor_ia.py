@@ -41,7 +41,8 @@ class MotorDeCompatibilidade:
                     print(f"Erro ao carregar o modelo de IA: {e}")
                     self.model = None
         else:
-            print("Motor de IA em modo ultra-leve.")
+            # Mensagem ajustada para refletir o uso no app.py
+            print("Motor de IA em modo ultra-leve (servidor web).")
 
     def _get_db_conn(self):
         try:
@@ -52,7 +53,9 @@ class MotorDeCompatibilidade:
             conn.row_factory = self._dict_factory
             return conn
         except sqlite3.Error as e:
-            print(f"Erro ao conectar ao banco de dados SQLite '{self.db_path}': {e}")
+            # --- DEBUG ADICIONADO ---
+            print(f"--- [DEBUG] MOTOR_IA: Erro ao CONECTAR ao banco de dados SQLite '{self.db_path}': {e} ---")
+            # --- FIM DEBUG ---
             return None
 
     def _dict_factory(self, cursor, row):
@@ -172,9 +175,12 @@ class MotorDeCompatibilidade:
 
     # --- Métodos Públicos e de Matches (sem alterações) ---
     def obter_linhas_de_pesquisa_publico(self):
-        # ... (código existente mantido) ...
         conn = self._get_db_conn()
-        if not conn: return []
+        if not conn: 
+            # --- DEBUG ADICIONADO ---
+            print(f"--- [DEBUG] MOTOR_IA: obter_linhas_de_pesquisa_publico falhou em _get_db_conn() ---")
+            # --- FIM DEBUG ---
+            return []
         try:
             cursor = conn.cursor()
             linhas = cursor.execute("SELECT id, linha, programa FROM linha_ime ORDER BY programa, linha").fetchall()
@@ -186,9 +192,12 @@ class MotorDeCompatibilidade:
             return []
 
     def encontrar_matches_publico(self):
-        # ... (código existente mantido) ...
         conn = self._get_db_conn()
-        if not conn: return []
+        if not conn: 
+            # --- DEBUG ADICIONADO ---
+            print(f"--- [DEBUG] MOTOR_IA: encontrar_matches_publico falhou em _get_db_conn() ---")
+            # --- FIM DEBUG ---
+            return []
         try:
             cursor = conn.cursor()
             matches = cursor.execute("SELECT * FROM match ORDER BY edital_id, score DESC").fetchall()
@@ -205,14 +214,18 @@ class MotorDeCompatibilidade:
 
 
     def get_edital_details(self, edital_id):
-        # ... (código existente mantido) ...
         conn = self._get_db_conn()
-        if not conn: return None
+        if not conn: 
+            # --- DEBUG ADICIONADO ---
+            print(f"--- [DEBUG] MOTOR_IA: get_edital_details falhou em _get_db_conn() ---")
+            # --- FIM DEBUG ---
+            return None
         try:
             cursor = conn.cursor()
             detalhes = cursor.execute("SELECT * FROM edital WHERE id = ?", (edital_id,)).fetchone()
             conn.close()
             # Converte string de data de volta para objeto datetime
+            # Esta conversão é útil se o DB não usar 'detect_types'
             if detalhes and 'prazo_submissao' in detalhes and isinstance(detalhes['prazo_submissao'], str):
                  try:
                      detalhes['prazo_submissao'] = datetime.datetime.fromisoformat(detalhes['prazo_submissao'])
@@ -247,6 +260,7 @@ class MotorDeCompatibilidade:
         except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
             print(f"Erro ao ler dados do SQLite para calcular matches: {e}")
             traceback.print_exc()
+            if conn_pd: conn_pd.close() # Garante fechamento
             return 0
         finally:
             if conn_pd: conn_pd.close()
@@ -264,8 +278,9 @@ class MotorDeCompatibilidade:
             return 0
 
         df_editais_abertos = df_editais[df_editais['status'] == 'aberto'].copy()
+        
         df_editais_elegiveis = df_editais_abertos
-
+        
         if df_editais_elegiveis.empty:
             print("Nenhum edital aberto encontrado.")
             return 0

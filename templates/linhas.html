@@ -1,41 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Gerenciar Minhas Linhas de Pesquisa{% endblock %}
+{% block title %}Login{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>Minhas Linhas de Pesquisa</h2>
-    <a href="{{ url_for('adicionar_linha') }}" class="btn btn-success">
-        <i class="bi bi-plus-circle"></i> Adicionar Nova Linha
-    </a>
-</div>
-<div class="card shadow-sm">
-    <div class="card-body">
-        <div class="table-responsive">
-            <table class="table table-hover align-middle">
-                <thead class="table-light">
-                    <tr>
-                        <th>Programa</th>
-                        <th>Linha de Pesquisa</th>
-                        <th class="text-end">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for linha in linhas %}
-                    <tr>
-                        <td>{{ linha.programa }}</td>
-                        <td>{{ linha.linha }}</td>
-                        <td class="text-end">
-                            <a href="{{ url_for('editar_linha', linha_id=linha.id) }}" class="btn btn-sm btn-primary">
-                                <i class="bi bi-pencil-square"></i> Editar
-                            </a>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <td colspan="3" class="text-center text-muted p-4">Você ainda não cadastrou nenhuma linha de pesquisa. Clique em "Adicionar Nova Linha" para começar.</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+<div class="row justify-content-center mt-5">
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-header text-center h4">
+                Acesso ao Sistema Sinapse
+            </div>
+            <div class="card-body p-4">
+                
+                <!-- Exibe mensagens flash (ex: erro de login) -->
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <!-- *** CORREÇÃO SEC-01 & BUG-02: Formulário de login padrão *** -->
+                <form method="post" action="{{ url_for('login') }}" autocomplete="off">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">E-mail Institucional</label>
+                        <!-- Remove 'value' hardcoded, adiciona autocomplete -->
+                        <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Senha</label>
+                        <div class="input-group">
+                             <!-- Remove 'value' hardcoded, adiciona autocomplete -->
+                            <input type="password" class="form-control" id="password" name="password" required autocomplete="current-password">
+                            <!-- Adiciona o botão "olhinho" (BUG-02) -->
+                            <span class="input-group-text">
+                                <i class="bi bi-eye-slash toggle-password" id="togglePasswordLogin" onclick="togglePasswordVisibility('password', 'togglePasswordLogin')"></i>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg">Entrar</button>
+                    </div>
+                </form>
+            </div>
+            <div class="card-footer text-muted text-center">
+                 <!-- *** CORREÇÃO: Links para registrar e continuar sem login *** -->
+                <small>
+                    Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui</a>.
+                    <br>
+                    <a href="{{ url_for('home') }}" class="mt-2 d-block">Continuar sem login</a>
+                </small>
+            </div>
         </div>
     </div>
 </div>

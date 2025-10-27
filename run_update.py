@@ -10,6 +10,7 @@ from motor_ia import MotorDeCompatibilidade # Importa a classe já configurada p
 import traceback # Para log de erros
 from dotenv import load_dotenv
 import datetime # Importa datetime para conversão
+from werkzeug.security import generate_password_hash # *** CORREÇÃO SEC-01: Importar hash ***
 
 # Carrega variáveis de ambiente (pode ser útil para DB_NAME ou outras configs)
 load_dotenv()
@@ -35,7 +36,7 @@ AREAS_CONHECIMENTO = [
 FRASES_ELEGIBILIDADE = [
     "Este edital é aberto a toda instituição de ciência e tecnologia (ICT) do país.",
     "Universidades públicas e institutos de pesquisa são o público-alvo principal.",
-    "Esta chamada é de uso exclusivo para empresas de base tecnológica e startups."
+    "Esta chamada é de uso exclusivo para empresas de base tecnlógica e startups."
 ]
 
 # --- Funções de Geração (Mantidas iguais) ---
@@ -69,10 +70,11 @@ def run_complete_update():
             print(f"Erro ao remover banco de dados antigo: {e}. Tentando continuar...")
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES) # Adicionado detect_types
+        
         # Habilitar suporte para tipos datetime (opcional, mas bom ter)
-        sqlite3.register_adapter(datetime.datetime, lambda val: val.isoformat())
-        sqlite3.register_converter("DATETIME", lambda val: datetime.datetime.fromisoformat(val.decode()))
+        # sqlite3.register_adapter(datetime.datetime, lambda val: val.isoformat())
+        # sqlite3.register_converter("DATETIME", lambda val: datetime.datetime.fromisoformat(val.decode()))
 
         cursor = conn.cursor()
 
@@ -126,10 +128,17 @@ def run_complete_update():
 
         # ETAPA 2: Popular com dados de teste
         print("[ETAPA 2] Gerando e inserindo dados simulados...")
-        users = [('admin@ime.br', 'admin')] + [(f'user{i}@ime.br', '123') for i in range(2, NUM_USUARIOS + 1)]
+        
+        # *** CORREÇÃO SEC-01: Gerar hash para senhas ***
+        hashed_password_admin = generate_password_hash('admin')
+        hashed_password_user = generate_password_hash('123')
+        
+        users = [('admin@ime.br', hashed_password_admin)] + \
+                [(f'user{i}@ime.br', hashed_password_user) for i in range(2, NUM_USUARIOS + 1)]
+        
         cursor.executemany("INSERT INTO users (email, password) VALUES (?, ?);", users)
         actual_user_ids = list(range(1, NUM_USUARIOS + 1))
-        print(f"{len(users)} usuários inseridos. IDs assumidos: {actual_user_ids}")
+        print(f"{len(users)} usuários inseridos (com senhas hasheadas). IDs assumidos: {actual_user_ids}")
 
         linhas_data = []
         for _ in range(NUM_LINHAS_PESQUISA):
@@ -150,8 +159,12 @@ def run_complete_update():
             prazo = fake.future_datetime(end_date='+60d')
             # *** CORREÇÃO: Converter Timestamp para objeto datetime padrão ***
             data_captura_dt = pd.Timestamp.now(tz='UTC').to_pydatetime()
+            
+            # *** CORREÇÃO BUG-01: Garantir que a URL seja absoluta ***
+            link_pagina = f"http://www.{fake.domain_name()}/{fake.slug()}"
+
             editais_data.append((
-                i, titulo, "FINEP", fake.url(), texto_pdf, "aberto",
+                i, titulo, "FINEP", link_pagina, texto_pdf, "aberto",
                 random.choice(["Nacional", "Regional"]), prazo, f"R$ {random.randint(50, 500)} mil",
                 random.choice(FRASES_ELEGIBILIDADE), base['area'],
                 data_captura_dt # Passar o objeto datetime padrão
@@ -160,7 +173,7 @@ def run_complete_update():
             # DEBUG: Verificar alguns dados antes de inserir
         print(f"Verificando os primeiros 3 editais gerados para inserção:")
         for k in range(min(3, len(editais_data))):
-            print(f"  Edital {k+1} - Status: '{editais_data[k][5]}'") # [5] é o índice do status na tupla
+            print(f"  Edital {k+1} - Status: '{editais_data[k][5]}', Link: '{editais_data[k][3]}'") # [5] é status, [3] é link
 
         # Inserção (código existente)
         cursor.executemany("""
@@ -183,21 +196,22 @@ def run_complete_update():
 
             print("Salvando embeddings no banco de dados SQLite...")
             embeddings_saved_count = 0
+            
+            # *** Otimização: Usar executemany para salvar embeddings ***
+            update_data = []
             for index, embedding in enumerate(embeddings):
                 linha_id = int(df_linhas.iloc[index]['id'])
-                # Converte para bytes (BLOB)
                 embedding_blob = embedding.astype(np.float32).tobytes()
-                try:
-                    # Usar uma nova conexão/cursor ou garantir que a anterior esteja ok
-                    # É mais seguro reabrir ou usar cursor diferente para updates após leitura com Pandas
-                    update_conn = sqlite3.connect(DB_PATH)
-                    update_cursor = update_conn.cursor()
-                    update_cursor.execute("UPDATE linha_ime SET embedding = ? WHERE id = ?", (embedding_blob, linha_id))
-                    update_conn.commit()
-                    update_conn.close()
-                    embeddings_saved_count += 1
-                except sqlite3.Error as update_err:
-                     print(f"Erro ao salvar embedding para linha ID {linha_id}: {update_err}")
+                update_data.append((embedding_blob, linha_id))
+
+            try:
+                # Usar a mesma conexão, mas com um novo cursor para o executemany
+                update_cursor = conn.cursor()
+                update_cursor.executemany("UPDATE linha_ime SET embedding = ? WHERE id = ?", update_data)
+                conn.commit()
+                embeddings_saved_count = len(update_data)
+            except sqlite3.Error as update_err:
+                 print(f"Erro ao salvar embeddings em lote: {update_err}")
 
             print(f"{embeddings_saved_count}/{len(df_linhas)} Embeddings salvos.")
 
@@ -209,14 +223,16 @@ def run_complete_update():
         print(f"Erro CRÍTICO durante a configuração/população do banco SQLite: {e}")
         traceback.print_exc()
         # Não precisa fechar conn aqui, o finally cuidará disso
+        if conn: conn.close() # Garante fechamento em caso de erro
         exit(1)
     except ImportError:
          print("Erro: Verifique se Pandas e SentenceTransformers estão instalados ('pip install pandas sentence-transformers')")
+         if conn: conn.close()
          exit(1)
     except Exception as e:
         print(f"Erro inesperado durante a Etapa 1, 2 ou 3: {e}")
         traceback.print_exc()
-        # Não precisa fechar conn aqui, o finally cuidará disso
+        if conn: conn.close()
         exit(1)
     finally:
         # Garante que a conexão seja fechada mesmo se ocorrer um erro
