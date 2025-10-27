@@ -11,19 +11,21 @@ from flask_cors import CORS
 
 load_dotenv()
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "uma-chave-secreta-muito-forte-local")
 
-# *** CORREÇÃO PROBLEMA 2: Definir tempo de vida da sessão ***
+# --- CORREÇÃO DEFINITIVA DO LOGIN INFINITO (HARDCODED) ---
+app.config['SECRET_KEY'] = "esta-e-uma-chave-secreta-estatica-e-confiavel-para-testes-locais"
+# ----------------------------------------------
+
+# *** Força todas as sessões a serem permanentes ***
+app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
 
-# *** CORREÇÃO CORS: Habilitar o CORS para a aplicação ***
+# *** Habilitar o CORS para a aplicação ***
 CORS(app) 
 
 # --- [DEBUG] ---
-# Adiciona logs de inicialização
 print("--- [DEBUG] APP: Servidor Flask inicializado ---")
 
-# *** CORREÇÃO: Otimizado para modo local ***
 # Carrega o modelo de IA na inicialização (modo local)
 print("Inicializando o motor de IA em modo local...")
 try:
@@ -56,8 +58,9 @@ def home():
 # Rota para Login
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    # Se o usuário já está logado, manda ele para a home
-    if 'user_id' in session:
+    # Se o usuário já está logado E NÃO ESTÁ TENTANDO LOGAR DE NOVO,
+    # ele não deveria nem estar aqui. Manda para a home.
+    if 'user_id' in session and request.method == 'GET':
         return redirect(url_for('home'))
 
     if request.method == 'POST':
@@ -66,46 +69,36 @@ def login():
 
         if not email or not password:
             flash("E-mail e senha são obrigatórios.", "danger")
-            return render_template('login.html')
+            return render_template('login.html', email=email)
 
-        # --- [DEBUG] ---
         print(f"--- [DEBUG] LOGIN: Tentativa de login para: {email}")
-
-        # Verifica o usuário no banco de dados (o motor já usa hash)
         user = motor.check_user(email, password) 
 
         if user:
-            # Usuário autenticado, armazena na sessão
             session['user_id'] = user['id']
             session['user_email'] = user['email']
+            # A sessão já é permanente por padrão (definido no app.config)
             
-            # *** CORREÇÃO PROBLEMA 2: Torna a sessão permanente ***
-            session.permanent = True
+            next_page = request.form.get('next') or request.args.get('next')
             
-            # Pega a página de destino (se existir)
-            next_page = request.args.get('next')
-            
-            # --- [DEBUG] ---
             print(f"--- [DEBUG] LOGIN: Usuário {email} logado com SUCESSO. Redirecionando para: {next_page or url_for('home')}")
             
-            # Evita redirecionar para a própria página de login ou logout
             if next_page and next_page != url_for('login') and next_page != url_for('logout') and next_page != url_for('register'):
                  return redirect(next_page)
             return redirect(url_for('home'))
         else:
-            # --- [DEBUG] ---
             print(f"--- [DEBUG] LOGIN: Usuário {email} falhou no login (senha ou email incorretos).")
             flash("E-mail ou senha inválidos.", "danger")
-            return render_template('login.html')
+            return render_template('login.html', email=email)
     
     # GET request
-    return render_template('login.html')
+    # Passa o 'next' para o template para o input hidden
+    return render_template('login.html', next=request.args.get('next', ''))
 
 # Rota para Registro de Conta
 @app.route('/register', methods=['GET', 'POST'])
 def register():
-    # Se o usuário já está logado, manda ele para a home
-    if 'user_id' in session:
+    if 'user_id' in session and request.method == 'GET':
         return redirect(url_for('home'))
 
     if request.method == 'POST':
@@ -115,30 +108,26 @@ def register():
 
         if not email or not password or not confirm_password:
             flash("Todos os campos são obrigatórios.", "danger")
-            return render_template('register.html')
+            return render_template('register.html', email=email)
 
         if password != confirm_password:
             flash("As senhas não coincidem.", "danger")
-            return render_template('register.html')
+            return render_template('register.html', email=email)
         
         if len(password) <= 4:
              flash("Senha muito curta (precisa ter mais de 4 caracteres).", "danger")
-             return render_template('register.html')
+             return render_template('register.html', email=email)
 
-        # Tenta adicionar o usuário (motor.add_user salva o hash)
         success, message = motor.add_user(email, password)
 
         if success:
-            # --- [DEBUG] ---
             print(f"--- [DEBUG] REGISTER: Usuário {email} criado com SUCESSO.")
             flash("Conta criada com sucesso! Por favor, faça o login.", "success")
             return redirect(url_for('login'))
         else:
-            # --- [DEBUG] ---
             print(f"--- [DEBUG] REGISTER: Falha ao criar {email}. Motivo: {message}")
-            # Retorna 409 (Conflict) se o email já existe, 500 para outros erros
             flash(message, "danger")
-            return render_template('register.html')
+            return render_template('register.html', email=email)
             
     # GET request
     return render_template('register.html')
@@ -148,7 +137,6 @@ def register():
 def logout():
     user_email = session.get('user_email', 'Usuário desconhecido')
     session.clear()
-    # --- [DEBUG] ---
     print(f"--- [DEBUG] LOGOUT: Usuário {user_email} deslogado.")
     flash("Você saiu da sua conta.", "success")
     return redirect(url_for('home'))
@@ -158,7 +146,6 @@ def logout():
 @app.route('/linhas')
 @login_required
 def listar_linhas():
-    # --- [DEBUG] ---
     print(f"--- [DEBUG] Rota /linhas acessada por user_id: {session.get('user_id')}")
     user_id = session['user_id']
     linhas = motor.get_linhas_by_user(user_id)
@@ -181,7 +168,6 @@ def adicionar_linha():
         try:
             motor.add_linha(nova_linha_data, user_id)
             flash("Nova linha de pesquisa adicionada! Pode levar um tempo para os embeddings serem calculados.", "success")
-            # TODO: Disparar recálculo de embeddings/matches
             return redirect(url_for('listar_linhas'))
         except Exception as e:
             flash(f"Erro ao adicionar linha: {e}", "danger")
@@ -212,7 +198,6 @@ def editar_linha(linha_id):
         try:
             motor.update_linha(linha_id, dados_atualizados, user_id)
             flash("Linha de pesquisa atualizada! Pode levar um tempo para os embeddings serem recalculados.", "success")
-            # TODO: Disparar recálculo de embeddings/matches
             return redirect(url_for('listar_linhas'))
         except Exception as e:
              flash(f"Erro ao atualizar linha: {e}", "danger")
@@ -223,30 +208,22 @@ def editar_linha(linha_id):
 
 
 # --- Rotas da API (Públicas) ---
-
-# Função auxiliar para converter tipos não serializáveis (como datetime)
 def make_serializable(obj):
     if isinstance(obj, (datetime.datetime, datetime.date)):
         return obj.isoformat()
     if isinstance(obj, bytes):
-        return None # Não enviar blobs de embedding
+        return None 
     raise TypeError(f"Tipo {type(obj)} não é serializável em JSON")
 
 @app.route('/api/linhas-de-pesquisa')
 def get_linhas_de_pesquisa():
-    # --- [DEBUG] ---
     print(f"--- [DEBUG] API: Rota /api/linhas-de-pesquisa FOI CHAMADA ---")
-    
     if motor is None:
         print(f"--- [DEBUG] API: ERRO: Motor de IA não foi carregado.")
         return jsonify({"error": "Motor de IA não inicializado"}), 500
-
     linhas = motor.obter_linhas_de_pesquisa_publico()
-    
-    # --- [DEBUG] ---
     if not linhas:
         print(f"--- [DEBUG] API: motor.obter_linhas_de_pesquisa_publico() retornou 0 linhas.")
-        # Verifica se o DB existe para dar uma dica ao usuário
         db_path = motor.db_path
         print(f"--- [DEBUG] API: Verificando se o DB existe em: {db_path}")
         if not os.path.exists(db_path):
@@ -256,32 +233,23 @@ def get_linhas_de_pesquisa():
              print(f"--- [DEBUG] API: AVISO: Nenhuma linha encontrada, mas o DB existe. O DB pode estar vazio.")
     else:
         print(f"--- [DEBUG] API: motor.obter_linhas_de_pesquisa_publico() retornou {len(linhas)} linhas.")
-
     return jsonify(linhas)
 
 
 @app.route('/api/matches')
 def get_matches():
-    # --- [DEBUG] ---
     print(f"--- [DEBUG] API: Rota /api/matches FOI CHAMADA ---")
-
     if motor is None:
         print(f"--- [DEBUG] API: ERRO: Motor de IA não foi carregado.")
         return jsonify({"error": "Motor de IA não inicializado"}), 500
-
     matches = motor.encontrar_matches_publico()
-    
     try:
-        # Garante que os tipos estão corretos para JSON
         serializable_matches = []
         for match in matches:
              match['score'] = float(match.get('score', 0.0))
              match['notificado'] = bool(match.get('notificado', False))
              serializable_matches.append(match)
-        
-        # --- [DEBUG] ---
         print(f"--- [DEBUG] API: motor.encontrar_matches_publico() retornou {len(serializable_matches)} matches.")
-
         return jsonify(serializable_matches)
     except Exception as e:
          print(f"--- [DEBUG] API: Erro ao serializar matches: {e}")
@@ -290,21 +258,16 @@ def get_matches():
 
 @app.route('/api/edital/<int:edital_id>')
 def get_edital_details_api(edital_id):
-     # --- [DEBUG] ---
     print(f"--- [DEBUG] API: Rota /api/edital/{edital_id} FOI CHAMADA ---")
-
     if motor is None:
         print(f"--- [DEBUG] API: ERRO: Motor de IA não foi carregado.")
         return jsonify({"error": "Motor de IA não inicializado"}), 500
-
     detalhes = motor.get_edital_details(edital_id)
     if detalhes:
         try:
-            # jsonify lida com objetos datetime automaticamente
             return jsonify(detalhes)
         except TypeError as e:
              print(f"--- [DEBUG] API: Erro ao serializar edital {edital_id}: {e}")
-             # Tenta serializar manualmente como fallback
              try:
                  serializable_details = {k: make_serializable(v) if isinstance(v, (datetime.datetime, bytes)) else v for k, v in detalhes.items()}
                  return jsonify(serializable_details)
@@ -313,11 +276,11 @@ def get_edital_details_api(edital_id):
                   return jsonify({"error": f"Erro ao processar detalhes do edital: {inner_e}"}), 500
     else:
         print(f"--- [DEBUG] API: Edital {edital_id} NÃO ENCONTRADO.")
-        abort(404, description="Edital não encontrado") # Retorna 404
+        abort(404, description="Edital não encontrado") 
 
 
 if __name__ == '__main__':
-    # Roda localmente na porta 5001, acessível na rede local, com debug ativado
     print("--- [DEBUG] APP: Iniciando servidor Flask... ---")
-    app.run(host="0.0.0.0", debug=True, port=5001)
+    # *** CORREÇÃO: Desativar o reloader para garantir a consistência da sessão ***
+    app.run(host="0.0.0.0", debug=True, port=5001, use_reloader=False)
 

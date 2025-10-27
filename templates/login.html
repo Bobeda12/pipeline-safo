@@ -1,49 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
-
 {% block content %}
 <div class="row justify-content-center mt-4">
-    <div class="col-lg-5 col-md-7">
-        
-        <div class="card shadow-sm border-0">
-            <div class="card-header bg-primary text-white text-center">
-                <h4 class="mb-0">Acesso ao Sistema Sinapse</h4>
+    <div class="col-md-6 col-lg-5">
+        <div class="card shadow-sm">
+            <div class="card-header text-center h4">
+                Acesso ao Sistema Sinapse
             </div>
-            <div class="card-body p-4 p-md-5">
-                <form method="POST" action="{{ url_for('login', next=request.args.get('next', '')) }}">
+            <div class="card-body p-4">
+                <form method="post" action="{{ url_for('login') }}">
+                    <input type="hidden" name="next" value="{{ next or request.args.get('next', '') }}">
+                    
                     <div class="mb-3">
-                        <label for="email" class="form-label">E-mail Institucional</label>
-                        <input type="email" class="form-control" id="email" name="email" value="{{ request.form.email or '' }}" required>
+                        <label for="inputEmailLogin" class="form-label">E-mail Institucional</label>
+                        <input type="email" class="form-control" id="inputEmailLogin" name="email" value="{{ email or '' }}" required>
                     </div>
-
-                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de senha com ícone *** -->
-                    <div class="mb-4">
-                        <label for="password" class="form-label">Senha</label>
+                    <div class="mb-3">
+                        <label for="inputPasswordLogin" class="form-label">Senha</label>
                         <div class="input-group">
-                            <input type="password" class="form-control" id="password" name="password" value="{{ request.form.password or '' }}" required>
-                            <span class="input-group-text" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')" style="cursor: pointer;">
-                                <i class="bi bi-eye-slash" id="togglePasswordIcon"></i>
+                            <input type="password" class="form-control" id="inputPasswordLogin" name="password" required>
+                            <span class="input-group-text toggle-password" id="togglePasswordLogin" onclick="togglePasswordVisibility('inputPasswordLogin', 'togglePasswordLogin')">
+                                <i class="bi bi-eye-slash"></i>
                             </span>
                         </div>
                     </div>
-                    <!-- *** FIM DA CORREÇÃO *** -->
-
-                    <div class="d-grid mb-3">
+                    <div class="d-grid">
                         <button type="submit" class="btn btn-primary btn-lg">Entrar</button>
                     </div>
-                     <div class="text-center mb-3">
-                        <a href="{{ url_for('home') }}" class="text-muted small">Continuar sem login</a>
-                    </div>
                 </form>
-            </div>
-            <div class="card-footer text-center bg-light py-3">
-                <small>Não tem uma conta? <a href="{{ url_for('register') }}" class="alert-link">Crie uma aqui</a>.</small>
+                <hr>
+                <div class="text-center">
+                    <p class="mb-1">Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui.</a></p>
+                    <a href="{{ url_for('home') }}">Continuar sem login</a>
+                </div>
             </div>
         </div>
-
     </div>
 </div>
 {% endblock %}
-
-
-

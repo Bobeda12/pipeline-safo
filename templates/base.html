@@ -9,37 +9,30 @@
     <style>
         body {
             background-color: #f8f9fa;
-            padding-bottom: 60px; /* Espaço para o footer fixo */
+            padding-bottom: 80px; 
          }
-        :root {
-            --bs-primary: #003366;
-            --bs-primary-rgb: 0, 51, 102;
-            --bs-primary-hover: #002244;
-        }
-        .navbar-dark { background-color: var(--bs-primary); } 
-        .btn-primary { 
-            background-color: var(--bs-primary); 
-            border-color: var(--bs-primary);
-        }
-        .btn-primary:hover {
-            background-color: var(--bs-primary-hover); 
-            border-color: var(--bs-primary-hover);
-        }
-        .btn-outline-primary {
-            color: var(--bs-primary);
-            border-color: var(--bs-primary);
-        }
-        .btn-outline-primary:hover {
-            color: #fff;
-            background-color: var(--bs-primary);
-            border-color: var(--bs-primary);
-        }
-        .alert-link {
-            color: var(--bs-primary);
-            font-weight: 600;
-        }
+        .navbar-dark { background-color: #003366; } 
         .card-header { background-color: #e9ecef; }
-        .footer {
+        .btn-success { background-color: #198754; border-color: #198754; }
+        .btn-success:hover { background-color: #157347; border-color: #146c43; }
+        .btn-primary { background-color: #0d6efd; border-color: #0d6efd; }
+        .btn-primary:hover { background-color: #0b5ed7; border-color: #0a58ca; }
+        .btn-secondary { background-color: #6c757d; border-color: #6c757d; }
+        .btn-secondary:hover { background-color: #5c636a; border-color: #565e64; }
+        .btn-info { 
+            background-color: #0d6efd; 
+            border-color: #0d6efd; 
+            color: #fff;
+        }
+        .btn-info:hover { 
+            background-color: #0b5ed7; 
+            border-color: #0a58ca; 
+            color: #fff;
+        }
+        .btn-outline-primary:hover { background-color: #0d6efd; color: white;}
+
+        .modal-header { background-color: #003366; }
+         .footer {
             position: fixed;
             left: 0;
             bottom: 0;
@@ -51,21 +44,28 @@
             font-size: 0.9em;
             z-index: 1000;
         }
+        .navbar .nav-link-login {
+            cursor: pointer;
+        }
+        .navbar .navbar-text {
+             margin-right: 0.5rem;
+        }
          main.container {
             padding-top: 1rem;
             padding-bottom: 2rem;
          }
          .table-hover > tbody > tr:hover > * {
              --bs-table-hover-bg: #cfe2ff;
+             color: var(--bs-table-hover-color);
          }
-         /* --- CORREÇÃO UIX-02: Estilo do header do modal --- */
-         .modal-header.bg-primary {
-            background-color: var(--bs-primary) !important;
-            color: white;
+         a:hover {
+            opacity: 0.8;
          }
-         .modal-header .btn-close {
-            filter: invert(1) grayscale(100%) brightness(200%);
-         }
+        /* Estilo para botão 'Mostrar Senha' */
+        .toggle-password {
+            cursor: pointer;
+        }
+
     </style>
 </head>
 <body>
@@ -83,41 +83,26 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'home' %}active{% endif %}" href="{{ url_for('home') }}">Dashboard</a>
                     </li>
-                    <!-- Link "Minhas Linhas" só aparece se logado -->
-                    {% if session.user_id %}
-                    <li class="nav-item">
+                    <!-- *** CORREÇÃO PROBLEMA 3: Oculto por padrão, JS vai exibir se logado *** -->
+                    <li class="nav-item" id="nav-minhas-linhas" style="display: none;">
                         <a class="nav-link {% if 'linha' in request.endpoint %}active{% endif %}" href="{{ url_for('listar_linhas') }}">Minhas Linhas</a>
                     </li>
-                    {% endif %}
                 </ul>
                 <div class="d-flex align-items-center">
-                    <!-- Mostra email e link de Sair se logado -->
-                    {% if session.user_id %}
-                        <span class="navbar-text text-white-50 me-3">
-                            Logado como: {{ session.user_email }}
-                        </span>
-                        <a href="{{ url_for('logout') }}" class="nav-link text-white-50" title="Sair">
-                            <i class="bi bi-box-arrow-right fs-5"></i>
-                        </a>
-                    <!-- Mostra link de Login se deslogado -->
-                    {% else %}
-                         <a href="{{ url_for('login') }}" class="btn btn-outline-light">
-                            Fazer Login
-                        </a>
-                    {% endif %}
+                    <span id="navbarUserInfo" class="navbar-text" style="display: none;"></span>
+                    <a id="navbarLoginLink" class="nav-link nav-link-login text-white">Fazer Login</a>
                 </div>
             </div>
         </div>
     </nav>
-
-    <!-- Modal para exibir detalhes do edital -->
+    
+     <!-- Modal para exibir detalhes do edital -->
     <div class="modal fade" id="editalModal" tabindex="-1" aria-labelledby="editalModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
-          <!-- *** CORREÇÃO UIX-02: Cabeçalho padronizado *** -->
           <div class="modal-header bg-primary text-white">
             <h5 class="modal-title" id="editalModalTitle">Detalhes do Edital</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body" id="editalModalBody">
             <p>Carregando detalhes...</p>
@@ -133,23 +118,16 @@
 
     <!-- Conteúdo Principal -->
     <main class="container mt-4 mb-5">
-        <!-- Exibe mensagens flash (alertas) -->
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                <div class="row">
-                    <div class="col-md-12">
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                                {{ message }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                            </div>
-                        {% endfor %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
-                </div>
+                {% endfor %}
             {% endif %}
         {% endwith %}
-        
-        <!-- Bloco de conteúdo da página específica -->
         {% block content %}{% endblock %}
     </main>
 
@@ -158,46 +136,76 @@
         <p class="mb-0">&copy; 2025 - Projeto IPE - Instituto Militar de Engenharia</p>
     </footer>
 
-    <!-- Scripts Globais -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- *** CORREÇÃO JS: Definir variáveis globais ANTES do block scripts *** -->
+    <!-- *** CORREÇÃO JS: Declarar no escopo global (window) *** -->
     <script>
-      const serverData = {
-          isLoggedIn: {{ session.get('user_id') is not none | default(false) | tojson }},
-          userEmail: {{ session.get('user_email') | default(none) | tojson }}
-      };
-      
-      // Definidas globalmente para que 'index.html' possa acessá-las
-      let usuarioLogado = serverData.isLoggedIn;
-      let emailLogado = serverData.userEmail;
-
-      // *** CORREÇÃO PROBLEMA 1: Função para mostrar/esconder senha ***
-      function togglePasswordVisibility(inputId, iconId) {
-          const input = document.getElementById(inputId);
-          const icon = document.getElementById(iconId);
-          if (input && icon) {
-              if (input.type === "password") {
-                  input.type = "text";
-                  icon.classList.remove("bi-eye-slash");
-                  icon.classList.add("bi-eye");
-              } else {
-                  input.type = "password";
-                  icon.classList.remove("bi-eye");
-                  icon.classList.add("bi-eye-slash");
-              }
-          }
-      }
-      // *** FIM DA CORREÇÃO ***
-
-      // Evento global para notificar mudança de login (se aplicável)
-      document.addEventListener('loginStateChanged', (e) => {
-          usuarioLogado = e.detail.isLoggedIn;
-          emailLogado = e.detail.userEmail;
-      });
+      // Esta linha é crucial. Ela é renderizada pelo Jinja2 no SERVIDOR.
+      // Se a sessão do servidor estiver vazia, 'window.usuarioLogado' será 'false'.
+      // Se a sessão tiver 'user_id', 'window.usuarioLogado' será 'true'.
+      window.usuarioLogado = {{ session.get('user_id') is not none | default(false) | tojson }};
+      window.emailLogado = {{ session.get('user_email') | default(none) | tojson }};
     </script>
-    
-    <!-- Bloco de scripts da página específica (ex: index.html) -->
+
+    <!-- JavaScript de Login/UI -->
+    <script>
+        // *** CORREÇÃO PROBLEMA 1: Função de mostrar senha ***
+        function togglePasswordVisibility(inputId, iconId) {
+            try {
+                const passwordInput = document.getElementById(inputId);
+                const passwordIcon = document.getElementById(iconId);
+                if (!passwordInput || !passwordIcon) return; // Proteção
+                
+                if (passwordInput.type === "password") {
+                    passwordInput.type = "text";
+                    passwordIcon.classList.remove("bi-eye-slash");
+                    passwordIcon.classList.add("bi-eye");
+                } else {
+                    passwordInput.type = "password";
+                    passwordIcon.classList.remove("bi-eye");
+                    passwordIcon.classList.add("bi-eye-slash");
+                }
+            } catch (e) {
+                console.error("Erro ao tentar mostrar senha:", e);
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', () => {
+             const navbarUserInfo = document.getElementById('navbarUserInfo');
+             const navbarLoginLink = document.getElementById('navbarLoginLink');
+             const navMinhasLinhas = document.getElementById('nav-minhas-linhas');
+
+            function atualizarUINavbar() {
+                // Esta função lê as variáveis 'window.usuarioLogado' e 'window.emailLogado'
+                // que foram definidas pelo servidor.
+                if (window.usuarioLogado) {
+                    // LOGADO
+                    navbarUserInfo.textContent = `Logado como: ${window.emailLogado}`;
+                    navbarUserInfo.style.display = 'inline';
+                    navbarLoginLink.textContent = 'Sair';
+                    navbarLoginLink.href = "{{ url_for('logout') }}"; // Link direto para logout
+                    
+                    // *** CORREÇÃO PROBLEMA 3: Mostrar o botão "Minhas Linhas" ***
+                    navMinhasLinhas.style.display = 'block'; 
+                } else {
+                    // DESLOGADO
+                    navbarUserInfo.style.display = 'none';
+                    navbarLoginLink.textContent = 'Fazer Login';
+                    navbarLoginLink.href = "{{ url_for('login') }}"; // Link direto para login
+                    
+                    // *** CORREÇÃO PROBLEMA 3: Esconder o botão "Minhas Linhas" ***
+                    navMinhasLinhas.style.display = 'none';
+                }
+            }
+            
+            // Roda a função assim que a página carrega
+            atualizarUINavbar();
+            
+            // Dispara um evento para outras páginas (como index.html) saberem que o estado mudou
+            document.dispatchEvent(new Event('loginStateChanged'));
+        });
+    </script>
+
     {% block scripts %}{% endblock %}
 
 </body>

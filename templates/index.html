@@ -47,13 +47,12 @@
         <tbody id="corpoTabela"></tbody>
     </table>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // --- [DEBUG] INÍCIO ---
     console.log("[DEBUG] index.html: Bloco de script iniciado.");
-    // --- [DEBUG] FIM ---
 
     // Variáveis Globais
     let todosOsMatches = [];
@@ -62,9 +61,12 @@
     const corpoTabela = document.getElementById('corpoTabela');
     const statusDiv = document.getElementById('mensagemAguarde'); 
     const btnGerenciarLinhas = document.getElementById('btn-gerenciar-linhas');
-    const alertaNotificacao = document.getElementById('alertaNotificacao'); 
-
-    // Referência ao Modal
+    
+    // *** CORREÇÃO BUG JS: Não redeclarar 'alertaNotificacao' ***
+    // A variável 'alertaNotificacao' já foi declarada com 'let' em base.html
+    // Apenas usamos ela aqui.
+    
+    // Referência ao Modal (definido em base.html)
     let editalModal; 
     let editalModalTitle, editalModalBody, editalModalLink;
 
@@ -72,7 +74,7 @@
     function popularDropdown() {
          console.log("[DEBUG] popularDropdown: Buscando /api/linhas-de-pesquisa...");
          
-         // *** CORREÇÃO: Revertido para URL relativa. O Flask-CORS cuidará da permissão. ***
+         // Usa URL relativa. O CORS no app.py vai permitir.
          fetch('/api/linhas-de-pesquisa')
             .then(response => {
                 if (!response.ok) {
@@ -120,7 +122,6 @@
         statusDiv.textContent = 'Buscando e calculando compatibilidade com a IA...';
         statusDiv.className = 'alert alert-secondary'; 
         
-        // *** CORREÇÃO: Revertido para URL relativa. ***
         fetch('/api/matches')
             .then(response => {
                 if (!response.ok) { 
@@ -171,6 +172,7 @@
                 if (scorePercentual >= 75) { corScoreClass = 'text-success fw-bold'; }
                 else if (scorePercentual >= 50) { corScoreClass = 'text-warning fw-bold'; }
 
+                // *** CORREÇÃO UIX-01: Botão padronizado para btn-primary ***
                 const linhaHtml = `
                     <tr>
                         <td>${match.edital_titulo || 'Título não disponível'}</td>
@@ -201,7 +203,6 @@
         editalModalLink.href = '#';
         editalModal.show();
 
-        // *** CORREÇÃO: Revertido para URL relativa. ***
         fetch(`/api/edital/${editalId}`)
             .then(response => {
                 if (!response.ok) { 
@@ -222,6 +223,7 @@
                     }
                 }
 
+                // *** CORREÇÃO UIX-02: Formatação do corpo do modal ***
                 editalModalBody.innerHTML = `
                     <dl class="row">
                         <dt class="col-sm-3">Órgão Fomentador</dt>
@@ -267,12 +269,17 @@
 
     // Função para atualizar visibilidade dos botões e alertas
     function atualizarUIIndex() {
-        console.log(`[DEBUG] atualizarUIIndex: Usuário logado: ${usuarioLogado}`);
+        // 'window.usuarioLogado' é definido em base.html
+        // 'alertaNotificacao' é definido em base.html
+        console.log(`[DEBUG] atualizarUIIndex: Usuário logado: ${window.usuarioLogado}`);
+        
         if (btnGerenciarLinhas) {
-            btnGerenciarLinhas.style.display = usuarioLogado ? 'block' : 'none';
+            btnGerenciarLinhas.style.display = window.usuarioLogado ? 'block' : 'none';
         }
-        if (alertaNotificacao) {
-            alertaNotificacao.style.display = usuarioLogado ? 'none' : 'block';
+        
+        // A variável 'alertaNotificacao' é definida em base.html
+        if (typeof alertaNotificacao !== 'undefined' && alertaNotificacao) {
+            alertaNotificacao.style.display = window.usuarioLogado ? 'none' : 'block';
         }
     }
 
@@ -301,8 +308,9 @@
         atualizarUIIndex(); 
     });
 
-    // Ouve o evento de mudança de estado de login
+    // Ouve o evento de mudança de estado de login (disparado por base.html)
     document.addEventListener('loginStateChanged', atualizarUIIndex);
+    console.log("[DEBUG] index.html: Event listener 'loginStateChanged' adicionado.");
 
 </script>
 {% endblock %}
