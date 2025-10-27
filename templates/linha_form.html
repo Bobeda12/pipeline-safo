@@ -1,32 +1,45 @@
 {% extends "base.html" %}
 {% block title %}{{ titulo }}{% endblock %}
+
 {% block content %}
-<div class="row justify-content-center">
+<div class="row justify-content-center mt-4"> <!-- Adiciona margem superior -->
     <div class="col-lg-8">
-        <div class="card shadow-sm">
-            <div class="card-header h4">
+        <div class="card shadow-sm border-0"> <!-- Remove borda padrão -->
+            <div class="card-header h4 bg-primary text-white"> <!-- Cabeçalho com cor primária -->
                 {{ titulo }}
             </div>
             <div class="card-body p-4">
                 <form method="post">
                     <div class="mb-3">
-                        <label for="programa" class="form-label">Programa (ex: PPGEE)</label>
-                        <input type="text" class="form-control" id="programa" name="programa" value="{{ linha.programa if linha else '' }}" required>
+                        <label for="programa" class="form-label">Programa <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="programa" name="programa" value="{{ linha.programa if linha else request.form.programa or '' }}" required placeholder="Ex: PPGCQ">
+                        <div class="form-text">Sigla do Programa de Pós-Graduação (obrigatório).</div>
                     </div>
                     <div class="mb-3">
-                        <label for="linha" class="form-label">Nome da Linha de Pesquisa</label>
-                        <input type="text" class="form-control" id="linha" name="linha" value="{{ linha.linha if linha else '' }}" required>
+                        <label for="linha" class="form-label">Nome da Linha de Pesquisa <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="linha" name="linha" value="{{ linha.linha if linha else request.form.linha or '' }}" required placeholder="Ex: Algoritmos Quânticos">
+                         <div class="form-text">Nome descritivo da linha (obrigatório).</div>
                     </div>
                     <div class="mb-3">
-                        <label for="descricao" class="form-label">Descrição</label>
-                        <textarea class="form-control" id="descricao" name="descricao" rows="5" required>{{ linha.descricao if linha else '' }}</textarea>
+                        <label for="descricao" class="form-label">Descrição Detalhada <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="descricao" name="descricao" rows="5" required placeholder="Descreva os objetivos, temas e abordagens da linha de pesquisa...">{{ linha.descricao if linha else request.form.descricao or '' }}</textarea>
+                         <div class="form-text">Detalhes sobre a linha de pesquisa (obrigatório).</div>
                     </div>
-                    <div class="mb-3">
-                        <label for="emails_contato" class="form-label">E-mails de Contato (separados por vírgula)</label>
-                        <input type="text" class="form-control" id="emails_contato" name="emails_contato" value="{{ linha.emails_contato if linha else '' }}">
+                    <div class="mb-4"> <!-- Aumenta margem inferior -->
+                        <label for="emails_contato" class="form-label">E-mails de Contato</label>
+                        <input type="text" class="form-control" id="emails_contato" name="emails_contato" value="{{ linha.emails_contato if linha else request.form.emails_contato or '' }}" placeholder="email1@ime.eb.br, email2@ime.eb.br">
+                         <div class="form-text">Separe múltiplos e-mails por vírgula (opcional).</div>
                     </div>
-                    <button type="submit" class="btn btn-success"><i class="bi bi-check-circle"></i> Salvar</button>
-                    <a href="{{ url_for('listar_linhas') }}" class="btn btn-secondary">Cancelar</a>
+                    
+                    <!-- Botões alinhados ao final -->
+                    <div class="d-flex justify-content-end"> 
+                        <a href="{{ url_for('listar_linhas') }}" class="btn btn-secondary me-2">
+                           <i class="bi bi-x-circle me-1"></i> Cancelar
+                        </a>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-check-circle me-1"></i> Salvar Alterações
+                        </button>
+                    </div>
                 </form>
             </div>
         </div>

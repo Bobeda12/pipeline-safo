@@ -1,40 +1,52 @@
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
+
 {% block content %}
-<div class="row justify-content-center mt-4">
+<div class="row justify-content-center mt-5"> <!-- Aumenta a margem superior para centralizar melhor verticalmente -->
     <div class="col-md-6 col-lg-5">
-        <div class="card shadow-sm">
-            <div class="card-header text-center h4">
+        <div class="card shadow-sm border-0"> <!-- Remove a borda padrão -->
+            
+            <!-- CORREÇÃO: Usa a classe .bg-main-brand (definida no base.html) -->
+            <div class="card-header text-center h4 bg-main-brand text-white">
                 Acesso ao Sistema Sinapse
             </div>
+            
             <div class="card-body p-4">
                 <form method="post" action="{{ url_for('login') }}">
                     <input type="hidden" name="next" value="{{ next or request.args.get('next', '') }}">
                     
                     <div class="mb-3">
                         <label for="inputEmailLogin" class="form-label">E-mail Institucional</label>
-                        <input type="email" class="form-control" id="inputEmailLogin" name="email" value="{{ email or '' }}" required>
+                        <input type="email" class="form-control form-control-lg" id="inputEmailLogin" name="email" value="{{ email or '' }}" required placeholder="seu.email@ime.eb.br"> <!-- Adiciona placeholder -->
                     </div>
-                    <div class="mb-3">
+                    
+                    <div class="mb-4"> <!-- Aumenta margem inferior -->
                         <label for="inputPasswordLogin" class="form-label">Senha</label>
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="inputPasswordLogin" name="password" required>
-                            <span class="input-group-text toggle-password" id="togglePasswordLogin" onclick="togglePasswordVisibility('inputPasswordLogin', 'togglePasswordLogin')">
-                                <i class="bi bi-eye-slash"></i>
+                        <div class="input-group input-group-lg"> <!-- Input maior -->
+                            <input type="password" class="form-control" id="inputPasswordLogin" name="password" required placeholder="********"> <!-- Adiciona placeholder -->
+                            
+                            <!-- Botão de mostrar senha -->
+                            <span class="input-group-text toggle-password" onclick="togglePasswordVisibility('inputPasswordLogin', 'togglePasswordLoginIcon')">
+                                <i class="bi bi-eye-slash" id="togglePasswordLoginIcon"></i> <!-- ID único para o ícone -->
                             </span>
                         </div>
                     </div>
-                    <div class="d-grid">
-                        <button type="submit" class="btn btn-primary btn-lg">Entrar</button>
+                    
+                    <div class="d-grid mb-3"> <!-- Adiciona margem inferior ao botão -->
+                        <!-- CORREÇÃO: Usa a classe .btn-main-brand (definida no base.html) -->
+                        <button type="submit" class="btn btn-main-brand btn-lg">Entrar</button>
                     </div>
                 </form>
                 <hr>
-                <div class="text-center">
-                    <p class="mb-1">Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui.</a></p>
-                    <a href="{{ url_for('home') }}">Continuar sem login</a>
+                <div class="text-center mt-3"> <!-- Adiciona margem superior -->
+                    <p class="mb-2">Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui.</a></p>
+                    
+                    <!-- CORREÇÃO: Estilo de link mais sutil para "Continuar sem login" -->
+                    <a href="{{ url_for('home') }}" class="btn btn-link text-muted btn-sm mt-2">Continuar sem login</a>
                 </div>
             </div>
         </div>
     </div>
 </div>
 {% endblock %}
+

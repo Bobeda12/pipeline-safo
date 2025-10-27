@@ -2,10 +2,10 @@
 {% block title %}Criar Conta{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-4">
+<div class="row justify-content-center mt-5"> <!-- Aumenta margem superior -->
     <div class="col-lg-5 col-md-7">
         
-        <div class="card shadow-sm border-0">
+        <div class="card shadow-sm border-0"> <!-- Remove borda -->
             <div class="card-header bg-primary text-white text-center">
                 <h4 class="mb-0">Criar Nova Conta</h4>
             </div>
@@ -13,41 +13,39 @@
                 <form method="POST" action="{{ url_for('register') }}">
                     <div class="mb-3">
                         <label for="email" class="form-label">E-mail Institucional</label>
-                        <input type="email" class="form-control" id="email" name="email" value="{{ request.form.email or '' }}" required>
+                        <input type="email" class="form-control form-control-lg" id="email" name="email" value="{{ request.form.email or '' }}" required placeholder="seu.email@ime.eb.br"> <!-- Input maior e placeholder -->
                     </div>
 
-                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de senha com ícone *** -->
                     <div class="mb-3">
                         <label for="password" class="form-label">Senha</label>
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="password" name="password" required>
-                            <span class="input-group-text" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')" style="cursor: pointer;">
-                                <i class="bi bi-eye-slash" id="togglePasswordIcon"></i>
+                        <div class="input-group input-group-lg"> <!-- Input maior -->
+                            <input type="password" class="form-control" id="password" name="password" required placeholder="********"> <!-- Placeholder -->
+                            <!-- Ajuste no onclick para passar IDs corretos -->
+                            <span class="input-group-text toggle-password" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')">
+                                <i class="bi bi-eye-slash" id="togglePasswordIcon"></i> <!-- ID único para o ícone -->
                             </span>
                         </div>
-                        <div class="form-text">A senha deve ter mais de 4 caracteres.</div>
+                        <div id="passwordHelp" class="form-text">A senha deve ter pelo menos 5 caracteres.</div> <!-- Texto de ajuda -->
                     </div>
-                    <!-- *** FIM DA CORREÇÃO *** -->
 
-                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de confirmar senha com ícone *** -->
-                    <div class="mb-4">
+                    <div class="mb-4"> <!-- Aumenta margem inferior -->
                         <label for="confirm_password" class="form-label">Confirmar Senha</label>
-                        <div class="input-group">
-                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
-                            <span class="input-group-text" onclick="togglePasswordVisibility('confirm_password', 'toggleConfirmPasswordIcon')" style="cursor: pointer;">
-                                <i class="bi bi-eye-slash" id="toggleConfirmPasswordIcon"></i>
+                        <div class="input-group input-group-lg"> <!-- Input maior -->
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required placeholder="********"> <!-- Placeholder -->
+                             <!-- Ajuste no onclick para passar IDs corretos -->
+                            <span class="input-group-text toggle-password" onclick="togglePasswordVisibility('confirm_password', 'toggleConfirmPasswordIcon')">
+                                <i class="bi bi-eye-slash" id="toggleConfirmPasswordIcon"></i> <!-- ID único para o ícone -->
                             </span>
                         </div>
                     </div>
-                    <!-- *** FIM DA CORREÇÃO *** -->
 
-                    <div class="d-grid mb-3">
+                    <div class="d-grid mb-3"> <!-- Margem inferior no botão -->
                         <button type="submit" class="btn btn-success btn-lg">Criar Conta</button>
                     </div>
                 </form>
             </div>
-            <div class="card-footer text-center bg-light py-3">
-                <small>Já tem uma conta? <a href="{{ url_for('login') }}" class="alert-link">Faça login aqui</a>.</small>
+            <div class="card-footer text-center bg-light py-3"> <!-- Footer mais claro -->
+                <small>Já tem uma conta? <a href="{{ url_for('login') }}">Faça login aqui</a>.</small> <!-- Link sem classe alert-link -->
             </div>
         </div>
 

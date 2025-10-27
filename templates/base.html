@@ -9,30 +9,49 @@
     <style>
         body {
             background-color: #f8f9fa;
+            /* Adiciona padding no final para não sobrepor o footer */
             padding-bottom: 80px; 
-         }
+        }
+        /* Cor da Navbar */
         .navbar-dark { background-color: #003366; } 
+        
+        /* Cor de fundo padrão para cabeçalhos de card */
         .card-header { background-color: #e9ecef; }
+        
+        /* Cores padrão do Bootstrap para botões */
         .btn-success { background-color: #198754; border-color: #198754; }
         .btn-success:hover { background-color: #157347; border-color: #146c43; }
         .btn-primary { background-color: #0d6efd; border-color: #0d6efd; }
         .btn-primary:hover { background-color: #0b5ed7; border-color: #0a58ca; }
         .btn-secondary { background-color: #6c757d; border-color: #6c757d; }
         .btn-secondary:hover { background-color: #5c636a; border-color: #565e64; }
-        .btn-info { 
-            background-color: #0d6efd; 
-            border-color: #0d6efd; 
-            color: #fff;
-        }
-        .btn-info:hover { 
-            background-color: #0b5ed7; 
-            border-color: #0a58ca; 
-            color: #fff;
-        }
+        
         .btn-outline-primary:hover { background-color: #0d6efd; color: white;}
 
-        .modal-header { background-color: #003366; }
-         .footer {
+        /* Cor do cabeçalho do Modal */
+        .modal-header { background-color: #003366; } 
+        
+        /* ================================== */
+        /* DEFINIÇÕES DE CSS PARA A COR DA MARCA */
+        /* ================================== */
+        .bg-main-brand { 
+            background-color: #003366 !important; /* Cor escura da navbar */
+        }
+        .btn-main-brand { 
+            background-color: #003366; 
+            border-color: #003366; 
+            color: #fff; 
+        }
+        .btn-main-brand:hover { 
+            background-color: #002244; /* Um tom mais escuro para hover */
+            border-color: #002244; 
+            color: #fff; 
+        }
+        /* ================================== */
+        /* FIM DA DEFINIÇÃO */
+        /* ================================== */
+
+        .footer {
             position: fixed;
             left: 0;
             bottom: 0;
@@ -42,7 +61,7 @@
             text-align: center;
             padding: 10px 0;
             font-size: 0.9em;
-            z-index: 1000;
+            z-index: 1000; /* Garante que o footer fique acima de outros elementos se necessário */
         }
         .navbar .nav-link-login {
             cursor: pointer;
@@ -51,13 +70,15 @@
              margin-right: 0.5rem;
         }
          main.container {
-            padding-top: 1rem;
-            padding-bottom: 2rem;
+            padding-top: 1rem; /* Espaçamento padrão no topo */
+            padding-bottom: 2rem; /* Espaçamento antes do footer */
          }
+         /* Cor de hover padrão do Bootstrap para tabelas */
          .table-hover > tbody > tr:hover > * {
-             --bs-table-hover-bg: #cfe2ff;
+             --bs-table-hover-bg: #cfe2ff; 
              color: var(--bs-table-hover-color);
          }
+         /* Efeito hover sutil para links */
          a:hover {
             opacity: 0.8;
          }
@@ -83,24 +104,26 @@
                     <li class="nav-item">
                         <a class="nav-link {% if request.endpoint == 'home' %}active{% endif %}" href="{{ url_for('home') }}">Dashboard</a>
                     </li>
-                    <!-- *** CORREÇÃO PROBLEMA 3: Oculto por padrão, JS vai exibir se logado *** -->
+                    <!-- Item "Minhas Linhas" - Visibilidade controlada por JS -->
                     <li class="nav-item" id="nav-minhas-linhas" style="display: none;">
                         <a class="nav-link {% if 'linha' in request.endpoint %}active{% endif %}" href="{{ url_for('listar_linhas') }}">Minhas Linhas</a>
                     </li>
                 </ul>
                 <div class="d-flex align-items-center">
-                    <span id="navbarUserInfo" class="navbar-text" style="display: none;"></span>
-                    <a id="navbarLoginLink" class="nav-link nav-link-login text-white">Fazer Login</a>
+                    <!-- Informação do usuário logado - Visibilidade controlada por JS -->
+                    <span id="navbarUserInfo" class="navbar-text text-white-50" style="display: none;"></span>
+                    <!-- Link Login/Logout - Texto e HREF controlados por JS -->
+                    <a id="navbarLoginLink" class="nav-link nav-link-login text-white" href="{{ url_for('login') }}">Fazer Login</a>
                 </div>
             </div>
         </div>
     </nav>
     
-     <!-- Modal para exibir detalhes do edital -->
+     <!-- Modal para exibir detalhes do edital (reutilizável) -->
     <div class="modal fade" id="editalModal" tabindex="-1" aria-labelledby="editalModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg modal-dialog-scrollable">
         <div class="modal-content">
-          <div class="modal-header bg-primary text-white">
+          <div class="modal-header text-white bg-main-brand"> <!-- Cor da marca -->
             <h5 class="modal-title" id="editalModalTitle">Detalhes do Edital</h5>
             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
@@ -121,7 +144,9 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    <!-- Padroniza alertas para 'alert-primary', mantendo 'alert-danger' para erros -->
+                    {% set alert_class = 'alert-primary' if category != 'danger' else 'alert-danger' %}
+                    <div class="alert {{ alert_class }} alert-dismissible fade show" role="alert">
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
@@ -138,71 +163,104 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- *** CORREÇÃO JS: Declarar no escopo global (window) *** -->
+    <!-- Define o estado de login em JS para ser usado por outros scripts -->
     <script>
       // Esta linha é crucial. Ela é renderizada pelo Jinja2 no SERVIDOR.
-      // Se a sessão do servidor estiver vazia, 'window.usuarioLogado' será 'false'.
-      // Se a sessão tiver 'user_id', 'window.usuarioLogado' será 'true'.
       window.usuarioLogado = {{ session.get('user_id') is not none | default(false) | tojson }};
       window.emailLogado = {{ session.get('user_email') | default(none) | tojson }};
+      console.log("[DEBUG] base.html: Estado de login inicial:", window.usuarioLogado, window.emailLogado);
     </script>
 
-    <!-- JavaScript de Login/UI -->
+    <!-- JavaScript Essencial (Login UI, Toggle Senha) -->
     <script>
-        // *** CORREÇÃO PROBLEMA 1: Função de mostrar senha ***
+        // Função Global para mostrar/ocultar senha (corrigida e robusta)
         function togglePasswordVisibility(inputId, iconId) {
             try {
                 const passwordInput = document.getElementById(inputId);
-                const passwordIcon = document.getElementById(iconId);
-                if (!passwordInput || !passwordIcon) return; // Proteção
+                const passwordIconElement = document.getElementById(iconId); // Pegar o elemento <i> interno
+
+                // Verifica se os elementos foram encontrados
+                if (!passwordInput) {
+                    console.error(`Erro: Input de senha com ID '${inputId}' não encontrado.`);
+                    return;
+                }
+                 if (!passwordIconElement) {
+                    console.error(`Erro: Ícone de senha com ID '${iconId}' não encontrado.`);
+                    return;
+                }
                 
+                // Alterna o tipo do input e a classe do ícone
                 if (passwordInput.type === "password") {
                     passwordInput.type = "text";
-                    passwordIcon.classList.remove("bi-eye-slash");
-                    passwordIcon.classList.add("bi-eye");
+                    passwordIconElement.classList.remove("bi-eye-slash");
+                    passwordIconElement.classList.add("bi-eye");
                 } else {
                     passwordInput.type = "password";
-                    passwordIcon.classList.remove("bi-eye");
-                    passwordIcon.classList.add("bi-eye-slash");
+                    passwordIconElement.classList.remove("bi-eye");
+                    passwordIconElement.classList.add("bi-eye-slash");
                 }
             } catch (e) {
-                console.error("Erro ao tentar mostrar senha:", e);
+                console.error("Erro inesperado ao tentar mostrar/ocultar senha:", e);
             }
         }
         
+        // Atualiza a UI da Navbar quando o DOM estiver pronto
         document.addEventListener('DOMContentLoaded', () => {
+             console.log("[DEBUG] base.html: DOMContentLoaded - Atualizando Navbar UI");
              const navbarUserInfo = document.getElementById('navbarUserInfo');
              const navbarLoginLink = document.getElementById('navbarLoginLink');
              const navMinhasLinhas = document.getElementById('nav-minhas-linhas');
+             
+             // Elemento de alerta para não logado (usado em index.html)
+             const alertaNotificacao = document.getElementById('alertaNotificacao');
+
 
             function atualizarUINavbar() {
                 // Esta função lê as variáveis 'window.usuarioLogado' e 'window.emailLogado'
                 // que foram definidas pelo servidor.
                 if (window.usuarioLogado) {
-                    // LOGADO
-                    navbarUserInfo.textContent = `Logado como: ${window.emailLogado}`;
-                    navbarUserInfo.style.display = 'inline';
-                    navbarLoginLink.textContent = 'Sair';
-                    navbarLoginLink.href = "{{ url_for('logout') }}"; // Link direto para logout
-                    
-                    // *** CORREÇÃO PROBLEMA 3: Mostrar o botão "Minhas Linhas" ***
-                    navMinhasLinhas.style.display = 'block'; 
+                    // Estado Logado
+                    if (navbarUserInfo) {
+                      navbarUserInfo.textContent = `Olá, ${window.emailLogado}`;
+                      navbarUserInfo.style.display = 'inline';
+                    }
+                    if (navbarLoginLink) {
+                      navbarLoginLink.textContent = 'Sair';
+                      navbarLoginLink.href = "{{ url_for('logout') }}"; // Link direto para logout
+                    }
+                    if (navMinhasLinhas) {
+                      navMinhasLinhas.style.display = 'list-item'; // Mostra o item da lista
+                    }
+                     // Esconde o alerta de notificação se existir
+                     if (alertaNotificacao) {
+                        alertaNotificacao.style.display = 'none';
+                     }
                 } else {
-                    // DESLOGADO
-                    navbarUserInfo.style.display = 'none';
-                    navbarLoginLink.textContent = 'Fazer Login';
-                    navbarLoginLink.href = "{{ url_for('login') }}"; // Link direto para login
-                    
-                    // *** CORREÇÃO PROBLEMA 3: Esconder o botão "Minhas Linhas" ***
-                    navMinhasLinhas.style.display = 'none';
+                    // Estado Deslogado
+                    if (navbarUserInfo) {
+                      navbarUserInfo.style.display = 'none';
+                    }
+                    if (navbarLoginLink) {
+                      navbarLoginLink.textContent = 'Fazer Login';
+                      navbarLoginLink.href = "{{ url_for('login') }}"; // Link direto para login
+                    }
+                    if (navMinhasLinhas) {
+                      navMinhasLinhas.style.display = 'none'; // Esconde o item da lista
+                    }
+                    // Mostra o alerta de notificação se existir
+                    if (alertaNotificacao) {
+                        alertaNotificacao.style.display = 'block'; 
+                    }
                 }
+                 console.log("[DEBUG] base.html: Navbar UI atualizada.");
+                 // Dispara um evento para outras páginas (como index.html) saberem que o estado mudou
+                 document.dispatchEvent(new Event('loginStateChanged'));
+                 console.log("[DEBUG] base.html: Evento 'loginStateChanged' disparado.");
             }
             
             // Roda a função assim que a página carrega
             atualizarUINavbar();
             
-            // Dispara um evento para outras páginas (como index.html) saberem que o estado mudou
-            document.dispatchEvent(new Event('loginStateChanged'));
         });
     </script>
 
