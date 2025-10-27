@@ -1,83 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Criar Conta{% endblock %}
+
 {% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-6 col-lg-5">
-        <div class="card shadow-sm">
-            <div class="card-header text-center h4">
-                Criar Nova Conta
+<div class="row justify-content-center mt-4">
+    <div class="col-lg-5 col-md-7">
+        
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-primary text-white text-center">
+                <h4 class="mb-0">Criar Nova Conta</h4>
             </div>
-            <div class="card-body p-4">
-
-                <!-- Exibe mensagens flash (ex: senhas não coincidem) -->
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                                {{ message }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
-
-                <form method="post" action="{{ url_for('register') }}" id="registerForm" onsubmit="return validatePasswords()">
+            <div class="card-body p-4 p-md-5">
+                <form method="POST" action="{{ url_for('register') }}">
                     <div class="mb-3">
                         <label for="email" class="form-label">E-mail Institucional</label>
-                        <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
+                        <input type="email" class="form-control" id="email" name="email" value="{{ request.form.email or '' }}" required>
                     </div>
+
+                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de senha com ícone *** -->
                     <div class="mb-3">
                         <label for="password" class="form-label">Senha</label>
                         <div class="input-group">
-                            <input type="password" class="form-control" id="password" name="password" required autocomplete="new-password">
-                            <span class="input-group-text">
-                                <i class="bi bi-eye-slash toggle-password" id="togglePassword" onclick="togglePasswordVisibility('password', 'togglePassword')"></i>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                            <span class="input-group-text" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')" style="cursor: pointer;">
+                                <i class="bi bi-eye-slash" id="togglePasswordIcon"></i>
                             </span>
                         </div>
-                        <small class="form-text text-muted">A senha deve ter mais de 4 caracteres.</small>
+                        <div class="form-text">A senha deve ter mais de 4 caracteres.</div>
                     </div>
-                    <div class="mb-3">
+                    <!-- *** FIM DA CORREÇÃO *** -->
+
+                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de confirmar senha com ícone *** -->
+                    <div class="mb-4">
                         <label for="confirm_password" class="form-label">Confirmar Senha</label>
                         <div class="input-group">
-                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required autocomplete="new-password">
-                            <span class="input-group-text">
-                                <i class="bi bi-eye-slash toggle-password" id="toggleConfirmPassword" onclick="togglePasswordVisibility('confirm_password', 'toggleConfirmPassword')"></i>
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" required>
+                            <span class="input-group-text" onclick="togglePasswordVisibility('confirm_password', 'toggleConfirmPasswordIcon')" style="cursor: pointer;">
+                                <i class="bi bi-eye-slash" id="toggleConfirmPasswordIcon"></i>
                             </span>
                         </div>
                     </div>
-                    
-                    <div id="password-mismatch-alert" class="alert alert-danger" role="alert" style="display: none;">
-                        As senhas não coincidem!
-                    </div>
+                    <!-- *** FIM DA CORREÇÃO *** -->
 
-                    <div class="d-grid">
+                    <div class="d-grid mb-3">
                         <button type="submit" class="btn btn-success btn-lg">Criar Conta</button>
                     </div>
                 </form>
             </div>
-            <div class="card-footer text-muted text-center">
-                <small>Já tem uma conta? <a href="{{ url_for('login') }}">Faça login</a>.</small>
+            <div class="card-footer text-center bg-light py-3">
+                <small>Já tem uma conta? <a href="{{ url_for('login') }}" class="alert-link">Faça login aqui</a>.</small>
             </div>
         </div>
+
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    function validatePasswords() {
-        const password = document.getElementById('password').value;
-        const confirmPassword = document.getElementById('confirm_password').value;
-        const alertDiv = document.getElementById('password-mismatch-alert');
-
-        if (password !== confirmPassword) {
-            if (alertDiv) alertDiv.style.display = 'block';
-            return false; // Impede o envio do formulário
-        }
-        
-        if (alertDiv) alertDiv.style.display = 'none';
-        return true; // Permite o envio do formulário
-    }
-</script>
 {% endblock %}
 

@@ -1,59 +1,49 @@
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
-{% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-6 col-lg-5">
-        <div class="card shadow-sm">
-            <div class="card-header text-center h4">
-                Acesso ao Sistema Sinapse
-            </div>
-            <div class="card-body p-4">
-                
-                <!-- Exibe mensagens flash (ex: erro de login) -->
-                {% with messages = get_flashed_messages(with_categories=true) %}
-                    {% if messages %}
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                                {{ message }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                {% endwith %}
 
-                <!-- *** CORREÇÃO SEC-01 & BUG-02: Formulário de login padrão *** -->
-                <form method="post" action="{{ url_for('login') }}" autocomplete="off">
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-lg-5 col-md-7">
+        
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-primary text-white text-center">
+                <h4 class="mb-0">Acesso ao Sistema Sinapse</h4>
+            </div>
+            <div class="card-body p-4 p-md-5">
+                <form method="POST" action="{{ url_for('login', next=request.args.get('next', '')) }}">
                     <div class="mb-3">
                         <label for="email" class="form-label">E-mail Institucional</label>
-                        <!-- Remove 'value' hardcoded, adiciona autocomplete -->
-                        <input type="email" class="form-control" id="email" name="email" required autocomplete="email">
+                        <input type="email" class="form-control" id="email" name="email" value="{{ request.form.email or '' }}" required>
                     </div>
-                    <div class="mb-3">
+
+                    <!-- *** CORREÇÃO PROBLEMA 1: Campo de senha com ícone *** -->
+                    <div class="mb-4">
                         <label for="password" class="form-label">Senha</label>
                         <div class="input-group">
-                             <!-- Remove 'value' hardcoded, adiciona autocomplete -->
-                            <input type="password" class="form-control" id="password" name="password" required autocomplete="current-password">
-                            <!-- Adiciona o botão "olhinho" (BUG-02) -->
-                            <span class="input-group-text">
-                                <i class="bi bi-eye-slash toggle-password" id="togglePasswordLogin" onclick="togglePasswordVisibility('password', 'togglePasswordLogin')"></i>
+                            <input type="password" class="form-control" id="password" name="password" value="{{ request.form.password or '' }}" required>
+                            <span class="input-group-text" onclick="togglePasswordVisibility('password', 'togglePasswordIcon')" style="cursor: pointer;">
+                                <i class="bi bi-eye-slash" id="togglePasswordIcon"></i>
                             </span>
                         </div>
                     </div>
-                    <div class="d-grid">
+                    <!-- *** FIM DA CORREÇÃO *** -->
+
+                    <div class="d-grid mb-3">
                         <button type="submit" class="btn btn-primary btn-lg">Entrar</button>
+                    </div>
+                     <div class="text-center mb-3">
+                        <a href="{{ url_for('home') }}" class="text-muted small">Continuar sem login</a>
                     </div>
                 </form>
             </div>
-            <div class="card-footer text-muted text-center">
-                 <!-- *** CORREÇÃO: Links para registrar e continuar sem login *** -->
-                <small>
-                    Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui</a>.
-                    <br>
-                    <a href="{{ url_for('home') }}" class="mt-2 d-block">Continuar sem login</a>
-                </small>
+            <div class="card-footer text-center bg-light py-3">
+                <small>Não tem uma conta? <a href="{{ url_for('register') }}" class="alert-link">Crie uma aqui</a>.</small>
             </div>
         </div>
+
     </div>
 </div>
 {% endblock %}
+
+
 

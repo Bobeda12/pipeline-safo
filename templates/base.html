@@ -172,9 +172,25 @@
       let usuarioLogado = serverData.isLoggedIn;
       let emailLogado = serverData.userEmail;
 
-      // Evento global para notificar mudança de login (se tivéssemos login por modal)
-      // No nosso caso, 'usuarioLogado' é definido no carregamento da página.
-      // Mantemos o 'loginStateChanged' para o caso de futuras implementações.
+      // *** CORREÇÃO PROBLEMA 1: Função para mostrar/esconder senha ***
+      function togglePasswordVisibility(inputId, iconId) {
+          const input = document.getElementById(inputId);
+          const icon = document.getElementById(iconId);
+          if (input && icon) {
+              if (input.type === "password") {
+                  input.type = "text";
+                  icon.classList.remove("bi-eye-slash");
+                  icon.classList.add("bi-eye");
+              } else {
+                  input.type = "password";
+                  icon.classList.remove("bi-eye");
+                  icon.classList.add("bi-eye-slash");
+              }
+          }
+      }
+      // *** FIM DA CORREÇÃO ***
+
+      // Evento global para notificar mudança de login (se aplicável)
       document.addEventListener('loginStateChanged', (e) => {
           usuarioLogado = e.detail.isLoggedIn;
           emailLogado = e.detail.userEmail;
