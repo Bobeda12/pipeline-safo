@@ -2,8 +2,13 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
-<div class="row mb-4 align-items-end"> <!-- Alinha itens na base -->
-    <div class="col-12 col-lg-8 mb-3 mb-lg-0"> 
+<!-- CORREÇÃO DE LAYOUT: 
+     Esta linha (row) agora verifica se o usuário está logado.
+     Se NÃO estiver logado, o dropdown ocupa 100% da largura (col-12).
+     Se ESTIVER logado, o dropdown ocupa 8 colunas e o botão 4, alinhando-se à direita.
+-->
+<div class="row mb-4 align-items-center"> <!-- Alinha verticalmente -->
+    <div class="{% if session.user_id %}col-lg-8{% else %}col-12{% endif %} mb-3 mb-lg-0"> 
         <div class="card p-3 shadow-sm h-100"> 
             <label for="selectLinha" class="form-label fs-5 mb-2"> <!-- Reduz margem inferior -->
                 <strong>Selecione Sua Linha de Pesquisa</strong>
@@ -14,43 +19,52 @@
         </div>
     </div>
 
-    <!-- Coluna para o botão Gerenciar, alinhado à direita em telas grandes -->
-    <div class="col-12 col-lg-4 d-grid d-lg-block text-lg-end"> 
-        <!-- Botão visível apenas se logado (controlado por JS) -->
-        <a href="{{ url_for('listar_linhas') }}" class="btn btn-outline-primary btn-lg" id="btn-gerenciar-linhas" style="display: none;"> 
-             Gerenciar Minhas Linhas
+    <!-- CORREÇÃO DE LAYOUT: 
+         Esta coluna só é renderizada no HTML se o usuário estiver logado.
+         Isso remove o "buraco" quando não está logado.
+    -->
+    {% if session.user_id %}
+    <div class="col-lg-4 d-grid gap-2 align-self-end"> <!-- Alinha na base -->
+        <!-- CORREÇÃO: Botão secundário para não competir com ações principais -->
+        <a href="{{ url_for('listar_linhas') }}" class="btn btn-outline-secondary btn-lg" id="btn-gerenciar-linhas"> 
+            <i class="bi bi-pencil-square"></i> Gerenciar Minhas Linhas
         </a>
     </div>
+    {% endif %}
 </div>
 
 <hr class="mb-4"> <!-- Aumenta margem inferior do hr -->
 
-<h2 class="mb-3">Sugestões de Editais</h2>
+<h2 class="mt-4 mb-3">Sugestões de Editais</h2>
 
-<!-- Mensagem Inicial (alert-info para destaque) -->
-<div class="alert alert-info" id="mensagemAguarde" role="alert">
+<!-- 
+    CORREÇÃO DE ALERTA: 
+    Alertas de 'info', 'success', 'warning' e 'secondary' são todos padronizados
+    para o mesmo tom de azul sutil, definido no 'base.html'.
+-->
+
+<!-- Mensagem Inicial (azul sutil) -->
+<div class="alert alert-secondary" id="mensagemAguarde" role="alert">
     <i class="bi bi-info-circle-fill me-2"></i>Selecione uma linha de pesquisa acima para carregar os editais e seus scores de relevância (IA).
 </div>
 
-<!-- Alerta para Usuário Não Logado (controlado por JS) -->
-<div class="alert alert-warning d-none" id="alertaNotificacao" role="alert">
-   <i class="bi bi-exclamation-triangle-fill me-2"></i> Para receber notificações por e-mail sobre novos editais, <a href="{{ url_for('login') }}" class="alert-link">faça login</a> ou <a href="{{ url_for('register') }}" class="alert-link">crie uma conta</a>.
+<!-- Alerta para Usuário Não Logado (azul sutil) - Visibilidade controlada pelo JS do base.html -->
+<div class="alert alert-secondary" id="alertaNotificacao" role="alert" style="display: none;">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>Para receber notificações por e-mail sobre novos editais, <a href="{{ url_for('login') }}" class="alert-link">faça login</a>.
 </div>
 
 <div class="table-responsive">
     <!-- Tabela inicialmente oculta -->
-    <table class="table table-striped table-hover shadow-sm rounded overflow-hidden" id="tabelaEditais" style="display:none;">
+    <table class="table table-striped table-hover shadow-sm" id="tabelaEditais" style="display:none;">
         <thead class="table-dark">
             <tr>
-                <th scope="col">Título do Edital</th>
-                <th scope="col">Programa (IME)</th> 
-                <th scope="col" class="text-center">Score (IA)</th>
-                <th scope="col" class="text-end">Ação</th>
+                <th>Título do Edital</th>
+                <th>Programa (IME)</th> 
+                <th>Score (IA)</th>
+                <th class="text-center">Ação</th> <!-- Centraliza -->
             </tr>
         </thead>
-        <tbody id="corpoTabela">
-            <!-- Linhas serão preenchidas por JavaScript -->
-        </tbody>
+        <tbody id="corpoTabela"></tbody>
     </table>
 </div>
 
@@ -60,31 +74,22 @@
 <script>
     console.log("[DEBUG] index.html: Bloco de script iniciado.");
 
-    // Variáveis Globais (melhor organização)
+    // Variáveis Globais
     let todosOsMatches = [];
-    let editalModalInstance = null; // Instância do Modal Bootstrap
-    
-    // Elementos do DOM
     const selectLinha = document.getElementById('selectLinha');
     const tabela = document.getElementById('tabelaEditais');
     const corpoTabela = document.getElementById('corpoTabela');
     const statusDiv = document.getElementById('mensagemAguarde'); 
-    const btnGerenciarLinhas = document.getElementById('btn-gerenciar-linhas');
-    const alertaNotificacao = document.getElementById('alertaNotificacao'); // Já declarado em base.html
     
-    // Elementos do Modal (buscados uma vez)
-    const modalElement = document.getElementById('editalModal');
-    const editalModalTitle = document.getElementById('editalModalTitle');
-    const editalModalBody = document.getElementById('editalModalBody');
-    const editalModalLink = document.getElementById('editalModalLink');
+    // Referência ao Modal (definido em base.html)
+    let editalModal; 
+    let editalModalTitle, editalModalBody, editalModalLink;
 
-
-    // --- Funções ---
 
     function popularDropdown() {
          console.log("[DEBUG] popularDropdown: Buscando /api/linhas-de-pesquisa...");
          
-         // Usa URL relativa. O CORS no app.py deve permitir.
+         // Usa URL relativa. O CORS no app.py vai permitir.
          fetch('/api/linhas-de-pesquisa')
             .then(response => {
                 if (!response.ok) {
@@ -96,49 +101,40 @@
             .then(linhas => {
                 console.log(`[DEBUG] popularDropdown: Recebido ${linhas.length} linhas da API.`);
                 
-                selectLinha.innerHTML = '<option value="" selected>-- Escolha uma Linha de Pesquisa --</option>'; // Opção default selecionada
+                selectLinha.innerHTML = '<option value="">-- Escolha uma Linha de Pesquisa --</option>';
+                let currentPrograma = "";
                 
                 if (linhas.length === 0) {
-                    console.warn("[DEBUG] popularDropdown: Nenhuma linha retornada.");
-                    // Mantém a opção default, talvez adicionar uma opção indicando vazio
-                    selectLinha.innerHTML = '<option value="" disabled selected>Nenhuma linha cadastrada</option>';
+                    console.warn("[DEBUG] popularDropdown: Nenhuma linha retornada. O banco de dados está vazio?");
+                    selectLinha.innerHTML = '<option value="">Nenhuma linha encontrada</option>';
                     return;
                 }
 
-                // Agrupa por programa
-                const grupos = {};
                 linhas.forEach(linha => {
-                    if (!grupos[linha.programa]) {
-                        grupos[linha.programa] = [];
+                    if (linha.programa !== currentPrograma) {
+                        let optgroup = selectLinha.querySelector(`optgroup[label="${linha.programa}"]`);
+                        if (!optgroup) {
+                            optgroup = document.createElement('optgroup');
+                            optgroup.label = linha.programa;
+                            selectLinha.appendChild(optgroup);
+                        }
+                        currentPrograma = linha.programa; 
                     }
-                    grupos[linha.programa].push(linha);
+                    const option = document.createElement('option');
+                    option.value = linha.id;
+                    option.textContent = linha.linha;
+                    selectLinha.querySelector(`optgroup[label="${linha.programa}"]`)?.appendChild(option);
                 });
-
-                // Cria os optgroups e options
-                for (const programa in grupos) {
-                    const optgroup = document.createElement('optgroup');
-                    optgroup.label = programa;
-                    grupos[programa].forEach(linha => {
-                        const option = document.createElement('option');
-                        option.value = linha.id;
-                        option.textContent = linha.linha;
-                        optgroup.appendChild(option);
-                    });
-                    selectLinha.appendChild(optgroup);
-                }
             })
             .catch(error => {
                  console.error("[DEBUG] Erro CRÍTICO ao popular dropdown:", error);
-                 selectLinha.innerHTML = '<option value="" disabled selected>Erro ao carregar linhas</option>';
+                 selectLinha.innerHTML = '<option value="">Erro ao carregar linhas</option>';
             });
     }
 
     function buscarTodosOsMatches() {
         console.log("[DEBUG] buscarTodosOsMatches: Buscando /api/matches...");
-        statusDiv.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Buscando e calculando compatibilidade com a IA...'; // Ícone de carregamento
-        statusDiv.className = 'alert alert-secondary'; // Mantém secundário durante carregamento
-        statusDiv.style.display = 'block'; // Garante visibilidade
-        tabela.style.display = 'none'; // Esconde tabela durante busca
+        statusDiv.innerHTML = '<i class="bi bi-info-circle-fill me-2"></i>Buscando e calculando compatibilidade com a IA...';
         
         fetch('/api/matches')
             .then(response => {
@@ -151,63 +147,51 @@
             .then(data => {
                 console.log(`[DEBUG] buscarTodosOsMatches: Recebido ${data.length} matches da API.`);
                 todosOsMatches = data;
-                // Atualiza status SÓ SE nenhuma linha estiver selecionada
-                if (!selectLinha || !selectLinha.value) {
-                  statusDiv.innerHTML = '<i class="bi bi-info-circle-fill me-2"></i>Pronto! Selecione uma linha de pesquisa para ver os resultados.';
-                  statusDiv.className = 'alert alert-info'; 
-                } else {
-                    statusDiv.style.display = 'none'; // Esconde se uma linha já estava selecionada
-                }
+                statusDiv.innerHTML = '<i class="bi bi-info-circle-fill me-2"></i>Pronto! Selecione uma linha de pesquisa para ver os resultados.';
             })
             .catch(error => {
                 console.error("[DEBUG] Erro CRÍTICO ao buscar matches:", error);
                 statusDiv.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>Erro ao conectar com o motor de IA ou buscar matches.';
-                statusDiv.className = 'alert alert-danger';
-                statusDiv.style.display = 'block'; // Garante visibilidade do erro
+                statusDiv.className = 'alert alert-danger'; // Muda para vermelho em caso de erro
             });
     }
 
     function exibirResultados() {
         const linhaIdSelecionada = selectLinha.value;
-        corpoTabela.innerHTML = ''; // Limpa tabela
+        corpoTabela.innerHTML = ''; 
         
         console.log(`[DEBUG] exibirResultados: Linha ID selecionada: '${linhaIdSelecionada}'`);
         
         if (!linhaIdSelecionada) {
-            tabela.style.display = 'none'; // Esconde tabela
-            statusDiv.style.display = 'block'; // Mostra statusDiv
+            tabela.style.display = 'none';
+            statusDiv.style.display = 'block';
             statusDiv.innerHTML = '<i class="bi bi-info-circle-fill me-2"></i>Selecione uma linha de pesquisa para ver os editais compatíveis.';
-            statusDiv.className = 'alert alert-info'; // Classe informativa
             return;
         }
-        
-        statusDiv.style.display = 'none'; // Esconde statusDiv ao selecionar linha
+        statusDiv.style.display = 'none'; 
 
         const matchesFiltrados = todosOsMatches.filter(match => match.linha_id == linhaIdSelecionada);
-        matchesFiltrados.sort((a, b) => b.score - a.score); // Ordena por score descendente
+        matchesFiltrados.sort((a, b) => b.score - a.score); 
 
         console.log(`[DEBUG] exibirResultados: Encontrados ${matchesFiltrados.length} matches para esta linha.`);
 
         if (matchesFiltrados.length === 0) {
-            corpoTabela.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-4"><i>Nenhum edital compatível encontrado com os critérios atuais para esta linha.</i></td></tr>';
+            corpoTabela.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum edital compatível encontrado com os critérios atuais para esta linha.</td></tr>';
         } else {
             matchesFiltrados.forEach(match => {
                 const scorePercentual = (match.score * 100).toFixed(1); 
-                let scoreBadgeClass = 'bg-secondary'; // Cor padrão (cinza)
-                if (scorePercentual >= 75) { scoreBadgeClass = 'bg-success'; } // Verde
-                else if (scorePercentual >= 40) { scoreBadgeClass = 'bg-warning text-dark'; } // Amarelo
-                else if (scorePercentual >= 15) { scoreBadgeClass = 'bg-info text-dark'; } // Azul claro
+                let corScoreClass = 'text-muted';
+                if (scorePercentual >= 75) { corScoreClass = 'text-success fw-bold'; }
+                else if (scorePercentual >= 50) { corScoreClass = 'text-warning fw-bold'; }
 
-                // Botão padronizado e alinhado à direita
+                // CORREÇÃO: Botão padronizado para btn-main-brand
                 const linhaHtml = `
                     <tr>
                         <td>${match.edital_titulo || 'Título não disponível'}</td>
                         <td>${match.programa || '-'}</td>
+                        <td class="${corScoreClass}">${scorePercentual}%</td>
                         <td class="text-center">
-                           <span class="badge ${scoreBadgeClass} rounded-pill px-3 py-2">${scorePercentual}%</span>
-                        </td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-primary" onclick="mostrarDetalhes(${match.edital_id})">
+                            <button class="btn btn-sm btn-main-brand" onclick="mostrarDetalhes(${match.edital_id})">
                                 <i class="bi bi-eye"></i> Detalhes
                             </button>
                         </td>
@@ -216,129 +200,86 @@
                 corpoTabela.innerHTML += linhaHtml;
             });
         }
-        tabela.style.display = 'table'; // Mostra a tabela
+        tabela.style.display = 'table';
     }
 
-    // Função para mostrar detalhes no Modal (melhorada)
+    // Função para mostrar detalhes no Modal
     function mostrarDetalhes(editalId) {
         console.log(`[DEBUG] mostrarDetalhes: Buscando edital ID ${editalId}...`);
-        
-        // Verifica se a instância do modal existe
-        if (!editalModalInstance) {
-             console.error("[DEBUG] Instância do Modal não encontrada.");
-             return;
-        }
-        if (!editalModalTitle || !editalModalBody || !editalModalLink) {
-            console.error("[DEBUG] Elementos internos do Modal não encontrados.");
+        if (!editalModal || !editalModalTitle || !editalModalBody || !editalModalLink) {
+            console.error("[DEBUG] Modal de detalhes não inicializado corretamente.");
             return;
         }
-
-        // Reseta o modal para estado de carregamento
         editalModalTitle.textContent = "Carregando...";
-        editalModalBody.innerHTML = `<div class="d-flex justify-content-center align-items-center p-5"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Carregando...</span></div></div>`;
+        editalModalBody.innerHTML = "<p>Buscando informações do edital...</p>";
         editalModalLink.href = '#';
-        editalModalLink.classList.add('disabled'); // Desabilita link inicialmente
-        editalModalLink.removeAttribute('target');
-        
-        editalModalInstance.show(); // Mostra o modal
+        editalModal.show();
 
-        // Busca os detalhes
         fetch(`/api/edital/${editalId}`)
             .then(response => {
                 if (!response.ok) { 
                     console.error(`[DEBUG] mostrarDetalhes: Falha no fetch! Status: ${response.status}`);
-                    throw new Error(`Erro ${response.status}: ${response.statusText}`);
+                    throw new Error(`Erro HTTP! status: ${response.status}`);
                 }
                 return response.json();
             })
             .then(data => {
                 console.log(`[DEBUG] mostrarDetalhes: Dados recebidos:`, data);
                 editalModalTitle.textContent = data.titulo || "Detalhes do Edital";
-                
-                // Formata a data (com fallback)
                 let prazoFormatado = 'Não informado';
                 if (data.prazo_submissao) {
                     try {
-                        // Tenta formatar a data ISO para dd/mm/aaaa
-                        prazoFormatado = new Date(data.prazo_submissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' }); // UTC para evitar problemas de fuso
+                        prazoFormatado = new Date(data.prazo_submissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
                     } catch (e) {
                         console.warn("[DEBUG] Não foi possível formatar a data:", data.prazo_submissao, e);
-                        prazoFormatado = data.prazo_submissao; // Mostra a string original se falhar
                     }
                 }
 
-                // Formatação do corpo do modal com dl/dt/dd
+                // Formatação do corpo do modal
                 editalModalBody.innerHTML = `
-                    <dl class="row mb-3">
-                        <dt class="col-sm-4">Órgão Fomentador</dt>
-                        <dd class="col-sm-8">${data.orgao || 'Não informado'}</dd>
+                    <dl class="row">
+                        <dt class="col-sm-3">Órgão Fomentador</dt>
+                        <dd class="col-sm-9">${data.orgao || 'Não informado'}</dd>
 
-                        <dt class="col-sm-4">Status</dt>
-                        <dd class="col-sm-8"><span class="badge bg-success text-uppercase">${data.status || 'Não informado'}</span></dd>
+                        <dt class="col-sm-3">Status</dt>
+                        <dd class="col-sm-9"><span class="badge bg-success text-uppercase">${data.status || 'Não informado'}</span></dd>
 
-                        <dt class="col-sm-4">Modalidade</dt>
-                        <dd class="col-sm-8">${data.modalidade || 'Não informada'}</dd>
+                        <dt class="col-sm-3">Modalidade</dt>
+                        <dd class="col-sm-9">${data.modalidade || 'Não informada'}</dd>
 
-                        <dt class="col-sm-4">Prazo Submissão</dt>
-                        <dd class="col-sm-8">${prazoFormatado}</dd>
+                        <dt class="col-sm-3">Prazo Submissão</dt>
+                        <dd class="col-sm-9">${prazoFormatado}</dd>
 
-                        <dt class="col-sm-4">Valor Estimado</dt>
-                        <dd class="col-sm-8">${data.valor_estimado || 'Não informado'}</dd>
+                        <dt class="col-sm-3">Valor Estimado</dt>
+                        <dd class="col-sm-9">${data.valor_estimado || 'Não informado'}</dd>
 
-                        <dt class="col-sm-4">Áreas/Tema</dt>
-                        <dd class="col-sm-8">${data.areas_tema || 'Não informado'}</dd>
+                        <dt class="col-sm-3">Áreas/Tema</dt>
+                        <dd class="col-sm-9">${data.areas_tema || 'Não informado'}</dd>
                     </dl>
                     <hr>
-                    <h5>Elegibilidade / Resumo</h5>
-                    <p class="text-muted">${data.elegibilidade || data.texto_pdf || 'Descrição não disponível.'}</p>
+                    <h5>Elegibilidade/Resumo</h5>
+                    <p>${data.elegibilidade || data.texto_pdf || 'Descrição não disponível.'}</p>
                 `;
                 
-                // Atualiza o link do edital
-                if (data.link_pagina && data.link_pagina !== '#') {
-                    editalModalLink.href = data.link_pagina;
-                    editalModalLink.classList.remove('disabled');
-                    editalModalLink.setAttribute('target', '_blank'); // Abrir em nova aba
-                } else {
-                    editalModalLink.href = '#';
+                editalModalLink.href = data.link_pagina || '#';
+                if (!data.link_pagina || data.link_pagina === '#') {
                     editalModalLink.classList.add('disabled');
                     editalModalLink.removeAttribute('target');
+                } else {
+                    editalModalLink.classList.remove('disabled');
+                    editalModalLink.setAttribute('target', '_blank');
                 }
             })
             .catch(error => {
                  console.error("[DEBUG] Erro CRÍTICO ao buscar detalhes do edital:", error);
                  editalModalTitle.textContent = "Erro ao Carregar"; 
-                 editalModalBody.innerHTML = `<p class='text-danger'>Não foi possível carregar os detalhes do edital (${error.message}). Por favor, tente novamente mais tarde.</p>`;
-                 editalModalLink.href = '#';
+                 editalModalBody.innerHTML = "<p class='text-danger'>Não foi possível carregar os detalhes do edital. Por favor, tente novamente mais tarde.</p>";
                  editalModalLink.classList.add('disabled');
                  editalModalLink.removeAttribute('target');
             });
     }
 
-    // Função para atualizar visibilidade dos botões e alertas com base no login
-    function atualizarUIIndex() {
-        // 'window.usuarioLogado' é definido em base.html
-        console.log(`[DEBUG] atualizarUIIndex: Usuário logado: ${window.usuarioLogado}`);
-        
-        if (btnGerenciarLinhas) {
-            btnGerenciarLinhas.style.display = window.usuarioLogado ? 'inline-block' : 'none'; // Usa inline-block para o botão
-        }
-        
-        // O alerta é controlado por JS em base.html agora, então não precisa mexer aqui.
-        // Apenas para garantir consistência visual inicial:
-        if (alertaNotificacao) {
-             alertaNotificacao.style.display = window.usuarioLogado ? 'none' : 'block';
-             // Adiciona a classe d-none dinamicamente se não estiver logado, para garantir
-             if (!window.usuarioLogado) {
-                alertaNotificacao.classList.remove('d-none');
-             } else {
-                alertaNotificacao.classList.add('d-none');
-             }
-        }
-    }
-
-    // --- Event Listeners e Inicialização ---
-
-    // Ouvinte para mudança no dropdown
+    // Event Listeners
     if (selectLinha) {
         selectLinha.addEventListener('change', exibirResultados);
     }
@@ -347,24 +288,21 @@
     document.addEventListener('DOMContentLoaded', () => {
          console.log("[DEBUG] index.html: DOMContentLoaded disparado. Inicializando...");
 
-         // Inicializa a instância do Modal Bootstrap
+         const modalElement = document.getElementById('editalModal'); 
          if (modalElement) {
-             editalModalInstance = new bootstrap.Modal(modalElement);
-             console.log("[DEBUG] index.html: Instância do Modal Bootstrap criada.");
+             editalModal = new bootstrap.Modal(modalElement);
+             editalModalTitle = document.getElementById('editalModalTitle');
+             editalModalBody = document.getElementById('editalModalBody');
+             editalModalLink = document.getElementById('editalModalLink');
+             console.log("[DEBUG] index.html: Modal de detalhes inicializado com sucesso.");
          } else {
-             console.error("[DEBUG] Elemento do Modal (editalModal) não encontrado no DOM!");
+             console.error("[DEBUG] Modal de detalhes do edital (editalModal) não encontrado no DOM!");
          }
 
-        // Funções de inicialização
         popularDropdown();
         buscarTodosOsMatches();
-        atualizarUIIndex(); // Atualiza UI baseada no estado de login inicial
+        // A UI de login (alerta/botão) é tratada pelo script no base.html agora
     });
-
-    // Ouve o evento de mudança de estado de login (disparado por base.html)
-    document.addEventListener('loginStateChanged', atualizarUIIndex);
-    console.log("[DEBUG] index.html: Event listener 'loginStateChanged' adicionado.");
 
 </script>
 {% endblock %}
-

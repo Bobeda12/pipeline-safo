@@ -9,7 +9,6 @@
     <style>
         body {
             background-color: #f8f9fa;
-            /* Adiciona padding no final para não sobrepor o footer */
             padding-bottom: 80px; 
         }
         /* Cor da Navbar */
@@ -17,19 +16,6 @@
         
         /* Cor de fundo padrão para cabeçalhos de card */
         .card-header { background-color: #e9ecef; }
-        
-        /* Cores padrão do Bootstrap para botões */
-        .btn-success { background-color: #198754; border-color: #198754; }
-        .btn-success:hover { background-color: #157347; border-color: #146c43; }
-        .btn-primary { background-color: #0d6efd; border-color: #0d6efd; }
-        .btn-primary:hover { background-color: #0b5ed7; border-color: #0a58ca; }
-        .btn-secondary { background-color: #6c757d; border-color: #6c757d; }
-        .btn-secondary:hover { background-color: #5c636a; border-color: #565e64; }
-        
-        .btn-outline-primary:hover { background-color: #0d6efd; color: white;}
-
-        /* Cor do cabeçalho do Modal */
-        .modal-header { background-color: #003366; } 
         
         /* ================================== */
         /* DEFINIÇÕES DE CSS PARA A COR DA MARCA */
@@ -47,9 +33,26 @@
             border-color: #002244; 
             color: #fff; 
         }
+        
+        /* Cor do cabeçalho do Modal */
+        .modal-header { 
+            background-color: #003366; 
+            color: #fff;
+        } 
+        .modal-header .btn-close {
+            filter: invert(1) grayscale(100%) brightness(200%);
+        }
+
         /* ================================== */
-        /* FIM DA DEFINIÇÃO */
+        /* PADRONIZAÇÃO DE ALERTAS */
         /* ================================== */
+        /* Força todos os alertas (exceto 'danger') a usarem o tema azul 'primary' */
+        .alert-info, .alert-secondary, .alert-success, .alert-warning {
+            --bs-alert-color: var(--bs-primary-text-emphasis);
+            --bs-alert-bg: var(--bs-primary-bg-subtle);
+            --bs-alert-border-color: var(--bs-primary-border-subtle);
+            --bs-alert-link-color: var(--bs-primary-text-emphasis);
+        }
 
         .footer {
             position: fixed;
@@ -61,7 +64,7 @@
             text-align: center;
             padding: 10px 0;
             font-size: 0.9em;
-            z-index: 1000; /* Garante que o footer fique acima de outros elementos se necessário */
+            z-index: 1000; 
         }
         .navbar .nav-link-login {
             cursor: pointer;
@@ -70,19 +73,16 @@
              margin-right: 0.5rem;
         }
          main.container {
-            padding-top: 1rem; /* Espaçamento padrão no topo */
-            padding-bottom: 2rem; /* Espaçamento antes do footer */
+            padding-top: 1rem; 
+            padding-bottom: 2rem; 
          }
-         /* Cor de hover padrão do Bootstrap para tabelas */
          .table-hover > tbody > tr:hover > * {
              --bs-table-hover-bg: #cfe2ff; 
              color: var(--bs-table-hover-color);
          }
-         /* Efeito hover sutil para links */
          a:hover {
             opacity: 0.8;
          }
-        /* Estilo para botão 'Mostrar Senha' */
         .toggle-password {
             cursor: pointer;
         }
@@ -111,7 +111,7 @@
                 </ul>
                 <div class="d-flex align-items-center">
                     <!-- Informação do usuário logado - Visibilidade controlada por JS -->
-                    <span id="navbarUserInfo" class="navbar-text text-white-50" style="display: none;"></span>
+                    <span id="navbarUserInfo" class="navbar-text text-white-50" style="display: none; margin-right: 0.5rem;"></span>
                     <!-- Link Login/Logout - Texto e HREF controlados por JS -->
                     <a id="navbarLoginLink" class="nav-link nav-link-login text-white" href="{{ url_for('login') }}">Fazer Login</a>
                 </div>
@@ -131,7 +131,8 @@
             <p>Carregando detalhes...</p>
           </div>
           <div class="modal-footer">
-            <a href="#" id="editalModalLink" class="btn btn-primary" target="_blank">Abrir Página do Edital</a>
+            <!-- Botão primário do modal também usa a cor da marca -->
+            <a href="#" id="editalModalLink" class="btn btn-main-brand" target="_blank">Abrir Página do Edital</a>
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
           </div>
         </div>
@@ -144,8 +145,8 @@
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
-                    <!-- Padroniza alertas para 'alert-primary', mantendo 'alert-danger' para erros -->
-                    {% set alert_class = 'alert-primary' if category != 'danger' else 'alert-danger' %}
+                    <!-- Os alertas agora são padronizados via CSS no <style> acima -->
+                    {% set alert_class = 'alert-' + category %}
                     <div class="alert {{ alert_class }} alert-dismissible fade show" role="alert">
                         {{ message }}
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
@@ -268,4 +269,3 @@
 
 </body>
 </html>
-

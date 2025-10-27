@@ -24,10 +24,9 @@
                         <label for="inputPasswordLogin" class="form-label">Senha</label>
                         <div class="input-group input-group-lg"> <!-- Input maior -->
                             <input type="password" class="form-control" id="inputPasswordLogin" name="password" required placeholder="********"> <!-- Adiciona placeholder -->
-                            
-                            <!-- Botão de mostrar senha -->
+                            <!-- O span agora chama a função JS com IDs corretos. O Ícone está dentro do span -->
                             <span class="input-group-text toggle-password" onclick="togglePasswordVisibility('inputPasswordLogin', 'togglePasswordLoginIcon')">
-                                <i class="bi bi-eye-slash" id="togglePasswordLoginIcon"></i> <!-- ID único para o ícone -->
+                                <i class="bi bi-eye-slash" id="togglePasswordLoginIcon"></i> <!-- ID específico para o ícone -->
                             </span>
                         </div>
                     </div>
@@ -40,7 +39,6 @@
                 <hr>
                 <div class="text-center mt-3"> <!-- Adiciona margem superior -->
                     <p class="mb-2">Não tem uma conta? <a href="{{ url_for('register') }}">Crie uma aqui.</a></p>
-                    
                     <!-- CORREÇÃO: Estilo de link mais sutil para "Continuar sem login" -->
                     <a href="{{ url_for('home') }}" class="btn btn-link text-muted btn-sm mt-2">Continuar sem login</a>
                 </div>
@@ -49,4 +47,3 @@
     </div>
 </div>
 {% endblock %}
-
