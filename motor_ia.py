@@ -3,6 +3,7 @@ import sqlite3
 import os
 import numpy as np
 from dotenv import load_dotenv # Ainda útil para outras configs se houver
+import traceback # Para log detalhado
 
 # Carrega variáveis de ambiente (se houver outras além do DB)
 load_dotenv()
@@ -12,6 +13,15 @@ try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
     SentenceTransformer = None # Define como None se não estiver instalado
+
+# Importações para cálculo de similaridade (movidas para o topo para clareza)
+try:
+    import pandas as pd
+    from sklearn.metrics.pairwise import cosine_similarity
+except ImportError:
+    pd = None
+    cosine_similarity = None
+
 
 class MotorDeCompatibilidade:
     def __init__(self, load_model=True): # Alterado: load_model=True por padrão para local
@@ -40,7 +50,8 @@ class MotorDeCompatibilidade:
     def _get_db_conn(self):
         """Retorna uma conexão sqlite3 direta."""
         try:
-            conn = sqlite3.connect(self.db_path)
+            # Garante detecção automática de tipos datetime
+            conn = sqlite3.connect(self.db_path, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
             # Define o row_factory aqui para todos os cursores desta conexão
             conn.row_factory = self._dict_factory
             return conn
@@ -56,13 +67,12 @@ class MotorDeCompatibilidade:
         return d
 
     # --- Métodos de acesso ao banco usando sqlite3 ---
-
+    # (Métodos check_user, get_linhas_by_user, etc. - mantidos iguais à versão anterior do SQLite)
     def check_user(self, email, password):
         conn = self._get_db_conn()
         if not conn: return None
         try:
             cursor = conn.cursor()
-            # row_factory já está definida na conexão
             user = cursor.execute("SELECT * FROM users WHERE email = ? AND password = ?", (email, password)).fetchone()
             conn.close()
             return user
@@ -173,32 +183,40 @@ class MotorDeCompatibilidade:
 
 
     # --- Método pesado de cálculo (ainda usa Pandas/Scikit-learn) ---
-    def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.60):
+    def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.10): # Mantido limiar baixo para teste
         # Verifica se o modelo foi carregado
         if self.model is None:
             print("Modelo de IA não carregado. Não é possível calcular matches.")
             return 0
+        # Verifica se Pandas e cosine_similarity foram importados
+        if pd is None or cosine_similarity is None:
+             print("Erro: Pandas ou Scikit-learn não instalados. Instale com 'pip install pandas scikit-learn'.")
+             return 0
 
-        # Importações específicas para este método pesado
+        # *** CORREÇÃO: Usar uma nova conexão para leitura com Pandas ***
+        conn_pd = None
         try:
-            import pandas as pd
-            from sklearn.metrics.pairwise import cosine_similarity
-        except ImportError:
-            print("Erro: Pandas ou Scikit-learn não instalados. Instale com 'pip install pandas scikit-learn'.")
-            return 0
-
-        conn = self._get_db_conn()
-        if not conn: return 0
-        try:
-            # Ler dados diretamente do SQLite usando Pandas
-            df_editais = pd.read_sql_query("SELECT * FROM edital", conn)
-            df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn)
-            conn.close() # Fechar conexão após leitura
+            conn_pd = sqlite3.connect(self.db_path) # Abre conexão específica para Pandas
+            # Ler dados diretamente do SQLite usando Pandas com a nova conexão
+            df_editais = pd.read_sql_query("SELECT * FROM edital", conn_pd)
+            df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn_pd)
 
         except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
             print(f"Erro ao ler dados do SQLite para calcular matches: {e}")
-            if conn: conn.close()
+            traceback.print_exc() # Imprime traceback detalhado
             return 0
+        finally:
+            if conn_pd: conn_pd.close() # Garante que a conexão do Pandas seja fechada
+
+        # --- DEBUG Prints (Mantidos para verificação) ---
+        print(f"Primeiras 5 linhas lidas da tabela 'edital':")
+        print(df_editais.head())
+        if 'status' in df_editais.columns:
+             print(f"Valores únicos na coluna 'status': {df_editais['status'].unique()}")
+        else:
+             print("AVISO: Coluna 'status' não encontrada no DataFrame 'edital'.")
+             return 0 # Não podemos continuar sem a coluna status
+        # --- Fim DEBUG Prints ---
 
         if df_editais.empty or df_linhas.empty:
             print("Tabelas de editais ou linhas estão vazias. Não há matches para calcular.")
@@ -206,30 +224,32 @@ class MotorDeCompatibilidade:
 
         # Lógica de filtro e cálculo de similaridade (mantida)
         df_editais_abertos = df_editais[df_editais['status'] == 'aberto'].copy()
-        # Removido filtro de elegibilidade que não estava definido
-        df_editais_elegiveis = df_editais_abertos
+        df_editais_elegiveis = df_editais_abertos # Simplificado (sem filtro de elegibilidade extra)
+
         if df_editais_elegiveis.empty:
-            print("Nenhum edital aberto encontrado.")
+            print("Nenhum edital aberto encontrado (após filtro 'status' == 'aberto').") # Mensagem mais clara
             return 0
 
-        if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().any():
-             print("AVISO: Coluna 'embedding' faltando ou com valores nulos em 'linha_ime'. Execute 'run_update.py' para calculá-los.")
+        if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all(): # Verifica se *todos* são nulos
+             print("AVISO: Coluna 'embedding' faltando ou com todos os valores nulos em 'linha_ime'. Execute 'run_update.py' para calculá-los.")
              return 0 # Não podemos calcular sem embeddings
 
-        # Certifica que embeddings são lidos corretamente do BLOB
+        # Certifica que embeddings são lidos corretamente do BLOB e lida com possíveis nulos
+        embeddings_linhas = []
+        df_linhas_com_embedding = df_linhas.dropna(subset=['embedding']).copy() # Cria cópia para evitar SettingWithCopyWarning
+        if df_linhas_com_embedding.empty:
+            print("Nenhuma linha com embedding válido encontrado.")
+            return 0
+
         try:
-            embeddings_linhas = np.array([np.frombuffer(blob, dtype=np.float32) for blob in df_linhas['embedding'].dropna()])
-            # Filtra df_linhas para corresponder aos embeddings lidos (caso haja nulos)
-            df_linhas_com_embedding = df_linhas.dropna(subset=['embedding'])
-            if len(embeddings_linhas) != len(df_linhas_com_embedding):
-                print("AVISO: Discrepância entre número de embeddings e linhas após remover nulos.")
-                # Pode precisar de lógica mais robusta aqui
+            embeddings_linhas = np.array([np.frombuffer(blob, dtype=np.float32) for blob in df_linhas_com_embedding['embedding']])
         except Exception as e:
             print(f"Erro ao converter embeddings BLOB: {e}")
+            traceback.print_exc()
             return 0
 
         if embeddings_linhas.size == 0:
-            print("Nenhum embedding válido encontrado nas linhas de pesquisa.")
+            print("Nenhum embedding válido processado.")
             return 0
 
 
@@ -239,29 +259,34 @@ class MotorDeCompatibilidade:
             return 0
 
         try:
+            print(f"Calculando similaridade entre {len(textos_editais)} editais e {len(embeddings_linhas)} linhas...")
             embeddings_editais = self.model.encode(textos_editais, show_progress_bar=False) # Roda localmente
             matriz_similaridade = cosine_similarity(embeddings_editais, embeddings_linhas)
+            print("Matriz de similaridade calculada.")
         except Exception as e:
              print(f"Erro ao calcular similaridade com o modelo: {e}")
+             traceback.print_exc()
              return 0
 
         lista_matches = []
-        for idx_linha, linha in df_linhas_com_embedding.iterrows(): # Usar df filtrado
-            scores_para_esta_linha = matriz_similaridade[:, idx_linha]
-            indices_top_n = np.argsort(scores_para_esta_linha)[-top_n:][::-1]
-            for idx_edital in indices_top_n:
-                score = scores_para_esta_linha[idx_edital]
+        # Itera sobre o df_linhas_com_embedding que corresponde aos embeddings_linhas
+        for idx_linha_relativo, (linha_id_real, linha) in enumerate(df_linhas_com_embedding.iterrows()):
+            scores_para_esta_linha = matriz_similaridade[:, idx_linha_relativo] # Usa o índice relativo
+            # Argsort retorna índices relativos a scores_para_esta_linha
+            indices_top_n_relativos = np.argsort(scores_para_esta_linha)[-top_n:][::-1]
+            for idx_edital_relativo in indices_top_n_relativos:
+                score = scores_para_esta_linha[idx_edital_relativo]
                 if score >= limiar_minimo:
-                    edital = df_editais_elegiveis.iloc[idx_edital]
+                    # Usa o índice relativo para pegar o edital correto de df_editais_elegiveis
+                    edital = df_editais_elegiveis.iloc[idx_edital_relativo]
                     match = {
                         'edital_id': int(edital['id']),
                         'edital_titulo': edital['titulo'],
-                        'linha_id': int(linha['id']),
+                        'linha_id': int(linha['id']), # Usa o ID real da linha
                         'linha_nome': linha['linha'],
                         'programa': linha['programa'],
                         'score': round(float(score), 4),
-                        'notificado': False # Adicionando coluna que faltava
-                        # 'data_calculo' não será adicionado aqui, mas pode ser adicionado ao salvar se necessário
+                        'notificado': False
                     }
                     lista_matches.append(match)
 
@@ -269,11 +294,13 @@ class MotorDeCompatibilidade:
             print("Nenhum match encontrado acima do limiar.")
             return 0
 
-        # Salvar matches no SQLite
-        conn = self._get_db_conn()
-        if not conn: return 0
+        # Salvar matches no SQLite (usando _get_db_conn para garantir consistência)
+        conn_save = self._get_db_conn()
+        if not conn_save:
+            print("Erro: Não foi possível conectar ao DB para salvar matches.")
+            return 0
         try:
-            cursor = conn.cursor()
+            cursor = conn_save.cursor()
             # Limpa a tabela match antes de inserir novos
             cursor.execute("DELETE FROM match")
             # Converte dicts para tuplas na ordem correta das colunas
@@ -285,13 +312,14 @@ class MotorDeCompatibilidade:
                 INSERT INTO match (edital_id, edital_titulo, linha_id, linha_nome, programa, score, notificado)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, match_tuples)
-            conn.commit()
-            conn.close()
+            conn_save.commit()
             print(f"{len(lista_matches)} matches salvos no banco de dados.")
             return len(lista_matches)
         except sqlite3.Error as e:
             print(f"Erro ao salvar matches no SQLite: {e}")
-            conn.rollback()
-            conn.close()
+            traceback.print_exc()
+            conn_save.rollback()
             return 0
+        finally:
+            if conn_save: conn_save.close()
 
