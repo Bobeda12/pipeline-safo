@@ -7,10 +7,14 @@ import io
 import traceback
 import subprocess # Para executar o Scrapy de forma robusta
 import datetime
+import sqlite3 # Importado para uso no seed
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader # Para extrair texto do PDF
 from motor_ia import MotorDeCompatibilidade
 from werkzeug.security import generate_password_hash
+
+# --- NOVO IMPORT ---
+from notificador import enviar_notificacao_match 
 
 # Carrega variáveis de ambiente
 load_dotenv()
@@ -20,6 +24,11 @@ load_dotenv()
 JSON_OUTPUT_FILE = 'editais_finep.json'
 # Palavras-chave para pré-filtragem de elegibilidade (exemplo)
 PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR = ["empresa", "startup", "exclusivo para"]
+
+# --- NOVA CONFIGURAÇÃO ---
+# Limiar de score para enviar notificação por e-mail (Ex: 0.35 = 35%)
+# (Conforme doc Projeto IPE2)
+LIMIAR_NOTIFICACAO = 0.35 
 
 # --- Funções Auxiliares ---
 
@@ -280,6 +289,7 @@ def run_complete_update():
     3. Executa o crawler da FINEP para buscar e inserir novos editais (com filtros).
     4. Calcula embeddings para linhas de pesquisa que ainda não possuem.
     5. Calcula e salva os matches (similaridade) entre editais e linhas.
+    6. Verifica e envia notificações por e-mail para novos matches.
     """
     print(f"--- INICIANDO TAREFA DE ATUALIZAÇÃO COMPLETA ({datetime.datetime.now()}) ---")
     start_time = time.time()
@@ -312,12 +322,55 @@ def run_complete_update():
         print("\n[ETAPA 4] Encontrando e salvando matches de similaridade...")
         num_matches = motor.encontrar_e_salvar_matches()
         print(f"Processo de matches concluído. {num_matches} matches processados.")
+
+        # --- NOVA ETAPA 5: Enviar Notificações ---
+        print("\n[ETAPA 5] Verificando e enviando notificações por e-mail...")
+        if not os.getenv("EMAIL_SENDER"):
+            print("  AVISO: Variáveis de ambiente de E-MAIL (EMAIL_SENDER, etc) não configuradas no .env.")
+            print("  Etapa de notificação será pulada.")
+        else:
+            try:
+                novos_matches = motor.get_novos_matches_para_notificar(LIMIAR_NOTIFICACAO)
+                if not novos_matches:
+                    print("  Nenhum match novo acima do limiar encontrado para notificar.")
+                else:
+                    print(f"  Encontrados {len(novos_matches)} matches para notificar (score >= {LIMIAR_NOTIFICACAO})...")
+                    sucessos_keys = [] # Lista de (edital_id, linha_id)
+                    
+                    for match in novos_matches:
+                        # Parsear emails_contato da linha
+                        emails_para_enviar = [email.strip() for email in match['emails_contato'].split(',') if email.strip()]
+                        
+                        if not emails_para_enviar:
+                            print(f"  AVISO: Match para linha '{match['linha_nome']}' (Score: {match['score']:.2f}) não possui e-mails de contato. Pulando.")
+                            # Marcar como notificado mesmo assim para não tentar de novo
+                            sucessos_keys.append((match['edital_id'], match['linha_id']))
+                            continue
+                        
+                        print(f"  -> Enviando notificação sobre '{match['edital_titulo'][:40]}...' para a linha '{match['linha_nome']}'...")
+                        
+                        sucesso = enviar_notificacao_match(match, emails_para_enviar)
+                        
+                        if sucesso:
+                            print(f"     ... Sucesso.")
+                            # Adiciona a chave composta (edital_id, linha_id) à lista
+                            sucessos_keys.append((match['edital_id'], match['linha_id']))
+                        else:
+                            print(f"     ... FALHA ao enviar e-mail. Não será marcado como notificado.")
+                    
+                    # Marcar todos que tiveram sucesso (ou que foram pulados)
+                    if sucessos_keys:
+                        motor.marcar_matches_como_notificados(sucessos_keys)
+                        
+            except Exception as e:
+                print(f"  ERRO CRÍTICO durante o processo de notificação: {e}")
+                traceback.print_exc()
+
     else:
-        print("\n[ETAPA 3 e 4] Pulando cálculo de embeddings e matches (Modelo de IA não carregado).")
+        print("\n[ETAPA 3, 4 e 5] Pulando cálculo de embeddings, matches e notificações (Modelo de IA não carregado).")
 
     end_time = time.time()
-    print(f"--- ATUALIZAÇÃO CONCLUÍDA EM {end_time - start_time:.2f} SEGUNDOS ---")
+    print(f"\n--- ATUALIZAÇÃO CONCLUÍDA EM {end_time - start_time:.2f} SEGUNDOS ---")
 
 if __name__ == "__main__":
     run_complete_update()
-

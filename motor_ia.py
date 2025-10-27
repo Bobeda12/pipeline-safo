@@ -596,5 +596,63 @@ class MotorDeCompatibilidade:
         print(f"[Embeddings] {embeddings_saved_count}/{len(df_linhas_pendentes)} Embeddings salvos.")
         return embeddings_saved_count
 
+    # --- NOVO MÉTODO: Buscar matches para notificar ---
+    def get_novos_matches_para_notificar(self, limiar_score):
+        """
+        Busca matches acima de um limiar que ainda não foram notificados.
+        Junta com edital (para link/prazo) e linha_ime (para emails).
+        """
+        conn = self._get_db_conn()
+        if not conn: 
+            print("[Notificador] Erro: Não foi possível conectar ao DB para buscar matches.")
+            return []
+        
+        # Este query junta as 3 tabelas para pegar todas as infos necessárias
+        query = """
+        SELECT
+            m.edital_id, m.linha_id, m.score,
+            m.edital_titulo, m.linha_nome, m.programa,
+            e.link_pagina, e.prazo_submissao,
+            l.emails_contato
+        FROM match AS m
+        JOIN edital AS e ON m.edital_id = e.id
+        JOIN linha_ime AS l ON m.linha_id = l.id
+        WHERE m.notificado = FALSE AND m.score >= ?
+        ORDER BY l.id, m.score DESC;
+        """
+        try:
+            cursor = conn.cursor()
+            matches = cursor.execute(query, (limiar_score,)).fetchall()
+            return matches
+        except sqlite3.Error as e:
+            print(f"Erro ao buscar matches para notificar: {e}")
+            return []
+        finally:
+            if conn:
+                conn.close()
 
-
+    # --- NOVO MÉTODO: Marcar matches como notificados ---
+    def marcar_matches_como_notificados(self, match_keys):
+        """
+        Marca uma lista de matches (tuplas (edital_id, linha_id)) como notificados.
+        """
+        conn = self._get_db_conn()
+        if not conn or not match_keys: 
+            print("[Notificador] Erro: Não foi possível conectar ao DB para marcar matches.")
+            return False
+            
+        query = "UPDATE match SET notificado = TRUE WHERE edital_id = ? AND linha_id = ?"
+        try:
+            cursor = conn.cursor()
+            # Usar executemany para atualizar em lote
+            cursor.executemany(query, match_keys)
+            conn.commit()
+            print(f"[Notificador] Marcados {len(match_keys)} matches como notificados no DB.")
+            return True
+        except sqlite3.Error as e:
+            print(f"Erro ao marcar matches em lote como notificados: {e}")
+            conn.rollback()
+            return False
+        finally:
+            if conn:
+                conn.close()
