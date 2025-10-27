@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
-<div class="row mb-4 align-items-end"> <div class="col-12 col-lg-8 mb-3 mb-lg-0"> <div class="card p-3 shadow-sm h-100"> <label for="selectLinha" class="form-label fs-5">
+<div class="row mb-4 align-items-end"> 
+    <div class="col-12 col-lg-8 mb-3 mb-lg-0"> 
+        <div class="card p-3 shadow-sm h-100"> 
+            <label for="selectLinha" class="form-label fs-5">
                 <strong>Selecione Sua Linha de Pesquisa</strong>
             </label>
             <select id="selectLinha" class="form-select form-select-lg">
@@ -10,19 +13,23 @@
         </div>
     </div>
 
-    <div class="col-12 col-lg-4 d-grid gap-2"> <a href="{{ url_for('listar_linhas') }}" class="btn btn-outline-primary btn-lg" id="btn-gerenciar-linhas" style="display: none;"> <strong>Gerenciar Minhas Linhas</strong>
+    <div class="col-12 col-lg-4 d-grid gap-2"> 
+        <a href="{{ url_for('listar_linhas') }}" class="btn btn-outline-primary btn-lg" id="btn-gerenciar-linhas" style="display: none;"> 
+            <strong>Gerenciar Minhas Linhas</strong>
         </a>
-        </div>
+    </div>
 </div>
 
 <hr>
 
 <h2 class="mt-4 mb-3">Sugestões de Editais</h2>
 
+<!-- Mensagem Inicial (alert-secondary) -->
 <div class="alert alert-secondary" id="mensagemAguarde" role="alert">
     Selecione uma linha de pesquisa acima para carregar os editais e seus scores de relevância (IA).
 </div>
 
+<!-- Alerta para Usuário Não Logado (alert-secondary) -->
 <div class="alert alert-secondary d-none" id="alertaNotificacao" role="alert">
     <p class="mb-0">Para receber notificações por e-mail sobre novos editais, <a href="{{ url_for('login') }}" class="alert-link">faça login</a>.</p>
 </div>
@@ -32,14 +39,14 @@
         <thead class="table-dark">
             <tr>
                 <th>Título do Edital</th>
-                <th>Programa (IME)</th> <th>Score (IA)</th>
+                <th>Programa (IME)</th> 
+                <th>Score (IA)</th>
                 <th>Ação</th>
             </tr>
         </thead>
         <tbody id="corpoTabela"></tbody>
     </table>
 </div>
-
 {% endblock %}
 
 {% block scripts %}
@@ -48,7 +55,7 @@
     console.log("[DEBUG] index.html: Bloco de script iniciado.");
     // --- [DEBUG] FIM ---
 
-    // Variáveis Globais (mantidas)
+    // Variáveis Globais
     let todosOsMatches = [];
     const selectLinha = document.getElementById('selectLinha');
     const tabela = document.getElementById('tabelaEditais');
@@ -65,8 +72,8 @@
     function popularDropdown() {
          console.log("[DEBUG] popularDropdown: Buscando /api/linhas-de-pesquisa...");
          
-         // *** CORREÇÃO: Usar URL absoluta para evitar falhas de requisição ***
-         fetch('http://127.0.0.1:5001/api/linhas-de-pesquisa')
+         // *** CORREÇÃO: Revertido para URL relativa. O Flask-CORS cuidará da permissão. ***
+         fetch('/api/linhas-de-pesquisa')
             .then(response => {
                 if (!response.ok) {
                     console.error(`[DEBUG] popularDropdown: Falha na resposta do fetch! Status: ${response.status}`);
@@ -87,7 +94,6 @@
                 }
 
                 linhas.forEach(linha => {
-                    // Cria optgroup se o programa mudar
                     if (linha.programa !== currentPrograma) {
                         let optgroup = selectLinha.querySelector(`optgroup[label="${linha.programa}"]`);
                         if (!optgroup) {
@@ -97,7 +103,6 @@
                         }
                         currentPrograma = linha.programa; 
                     }
-                    // Adiciona a opção
                     const option = document.createElement('option');
                     option.value = linha.id;
                     option.textContent = linha.linha;
@@ -115,8 +120,8 @@
         statusDiv.textContent = 'Buscando e calculando compatibilidade com a IA...';
         statusDiv.className = 'alert alert-secondary'; 
         
-        // *** CORREÇÃO: Usar URL absoluta para evitar falhas de requisição ***
-        fetch('http://127.0.0.1:5001/api/matches')
+        // *** CORREÇÃO: Revertido para URL relativa. ***
+        fetch('/api/matches')
             .then(response => {
                 if (!response.ok) { 
                     console.error(`[DEBUG] buscarTodosOsMatches: Falha na resposta do fetch! Status: ${response.status}`);
@@ -196,8 +201,8 @@
         editalModalLink.href = '#';
         editalModal.show();
 
-        // *** CORREÇÃO: Usar URL absoluta para evitar falhas de requisição ***
-        fetch(`http://127.0.0.1:5001/api/edital/${editalId}`)
+        // *** CORREÇÃO: Revertido para URL relativa. ***
+        fetch(`/api/edital/${editalId}`)
             .then(response => {
                 if (!response.ok) { 
                     console.error(`[DEBUG] mostrarDetalhes: Falha no fetch! Status: ${response.status}`);
@@ -301,3 +306,4 @@
 
 </script>
 {% endblock %}
+

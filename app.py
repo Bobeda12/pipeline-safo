@@ -1,5 +1,7 @@
 # app.py (Versão Local, com API login/register funcionais)
 from flask import Flask, jsonify, render_template, request, redirect, url_for, flash, session, abort
+# *** NOVO: Importar o CORS ***
+from flask_cors import CORS
 from dotenv import load_dotenv
 from motor_ia import MotorDeCompatibilidade
 from functools import wraps
@@ -11,8 +13,12 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "uma-chave-secreta-muito-forte-local")
 
+# *** NOVO: Ativar o CORS para a aplicação ***
+# Isso permitirá que o JavaScript do navegador (frontend)
+# se comunique com o servidor Flask (backend)
+CORS(app)
+
 print("Inicializando o motor de IA em modo local...")
-# *** CORREÇÃO: Carregar o modelo de IA localmente (load_model=True) ***
 motor = MotorDeCompatibilidade(load_model=True) 
 if motor.model is None:
      print("AVISO: Modelo de IA não carregado. O cálculo de similaridade em tempo real não funcionará.")
@@ -58,7 +64,7 @@ def login():
     # Método GET
     return render_template('login.html')
 
-# *** Rota de Registro RESTAURADA ***
+# Rota de Registro
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
@@ -174,7 +180,6 @@ def make_serializable(obj):
 
 @app.route('/api/linhas-de-pesquisa')
 def get_linhas_de_pesquisa():
-    # --- ADICIONADO DEBUG ---
     print("\n--- [DEBUG] API: Rota /api/linhas-de-pesquisa FOI CHAMADA ---")
     try:
         linhas = motor.obter_linhas_de_pesquisa_publico()
@@ -195,11 +200,9 @@ def get_linhas_de_pesquisa():
         print(f"--- [DEBUG] API: ERRO CRÍTICO em get_linhas_de_pesquisa: {e} ---")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
-    # --- FIM DEBUG ---
 
 @app.route('/api/matches')
 def get_matches():
-    # --- ADICIONADO DEBUG ---
     print("\n--- [DEBUG] API: Rota /api/matches FOI CHAMADA ---")
     try:
         matches = motor.encontrar_matches_publico()
@@ -207,7 +210,6 @@ def get_matches():
         if not matches:
             print(f"--- [DEBUG] API: AVISO: Nenhum match encontrado. Verifique se 'run_update.py' completou a 'Etapa 4'.")
 
-         # Converte datas/outros tipos se necessário antes de retornar JSON
         serializable_matches = []
         for match in matches:
              match['score'] = float(match['score']) if match.get('score') is not None else 0.0
@@ -219,39 +221,34 @@ def get_matches():
          print(f"--- [DEBUG] API: ERRO CRÍTICO em get_matches: {e} ---")
          traceback.print_exc()
          return jsonify({"error": "Erro ao processar dados de matches"}), 500
-    # --- FIM DEBUG ---
 
 
 @app.route('/api/edital/<int:edital_id>')
 def get_edital_details_api(edital_id):
-    # --- ADICIONADO DEBUG ---
     print(f"\n--- [DEBUG] API: Rota /api/edital/{edital_id} FOI CHAMADA ---")
     try:
         detalhes = motor.get_edital_details(edital_id)
         if detalhes:
             print(f"--- [DEBUG] API: Encontrado edital ID {edital_id}: {detalhes.get('titulo')}")
-            # Tenta serializar, convertendo datas/bytes que o jsonify padrão não lida
             serializable_details = {}
             for k, v in detalhes.items():
                 if isinstance(v, (datetime.datetime, datetime.date)):
                     serializable_details[k] = v.isoformat()
                 elif isinstance(v, bytes):
-                    serializable_details[k] = None # Ignora bytes (ex: embeddings)
+                    serializable_details[k] = None 
                 else:
                     serializable_details[k] = v
             return jsonify(serializable_details)
         else:
             print(f"--- [DEBUG] API: ERRO: Edital ID {edital_id} NÃO ENCONTRADO.")
-            abort(404, description="Edital não encontrado") # Retorna 404
+            abort(404, description="Edital não encontrado")
             
     except Exception as e:
          print(f"--- [DEBUG] API: ERRO CRÍTICO em get_edital_details_api (ID: {edital_id}): {e} ---")
          traceback.print_exc()
          return jsonify({"error": f"Erro ao processar detalhes do edital: {e}"}), 500
-    # --- FIM DEBUG ---
 
 
 if __name__ == '__main__':
-    # Roda localmente na porta 5001, acessível na rede local, com debug ativado
     app.run(host="0.0.0.0", debug=True, port=5001)
 
