@@ -9,16 +9,20 @@ class FinepSpider(scrapy.Spider):
     name = 'finep_editais'
     
     allowed_domains = ['finep.gov.br']
-    start_urls = ['http://www.finep.gov.br/chamadas-publicas?situacao=aberta']
+    # --- MODIFICADO PARA DEMONSTRAÇÃO ---
+    # Busca editais 'encerrada' em vez de 'aberta'
+    start_urls = ['http://www.finep.gov.br/chamadas-publicas?situacao=encerrada']
 
     def parse(self, response):
         links_dos_editais = response.css('div.item h3 a::attr(href)').getall()
         for link in links_dos_editais:
             yield response.follow(link, callback=self.parse_item_details)
 
-        link_proxima_pagina = response.css('li.pagination-next a::attr(href)').get()
-        if link_proxima_pagina is not None:
-            yield response.follow(link_proxima_pagina, callback=self.parse)
+        # --- MODIFICADO PARA DEMONSTRAÇÃO ---
+        # Paginação foi comentada para limitar a 1 página (aprox. 10 editais)
+        # link_proxima_pagina = response.css('li.pagination-next a::attr(href)').get()
+        # if link_proxima_pagina is not None:
+        #     yield response.follow(link_proxima_pagina, callback=self.parse)
 
     def parse_item_details(self, response):
         titulo = response.css('h2.tit_pag a::text').get()
@@ -45,3 +49,4 @@ class FinepSpider(scrapy.Spider):
             'url': response.url,
             'Link PDF': link_pdf_completo if link_pdf_completo else 'Link não encontrado'
         }
+

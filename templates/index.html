@@ -171,6 +171,8 @@
         statusDiv.style.display = 'none'; 
 
         const matchesFiltrados = todosOsMatches.filter(match => match.linha_id == linhaIdSelecionada);
+        // MODIFICAÇÃO: No modo demo, o /api/matches já vem ordenado por score.
+        // Mas vamos manter o sort aqui caso a API mude.
         matchesFiltrados.sort((a, b) => b.score - a.score); 
 
         console.log(`[DEBUG] exibirResultados: Encontrados ${matchesFiltrados.length} matches para esta linha.`);
@@ -234,15 +236,34 @@
                         console.warn("[DEBUG] Não foi possível formatar a data:", data.prazo_submissao, e);
                     }
                 }
+                
+                // *** CORREÇÃO: Separar Elegibilidade e Resumo ***
+                // Esta é a mudança principal para corrigir o que você viu.
+                let statusBadgeClass = 'bg-secondary'; // Padrão
+                if (data.status && data.status.toLowerCase() === 'aberto') {
+                    statusBadgeClass = 'bg-success';
+                } else if (data.status) {
+                    statusBadgeClass = 'bg-warning text-dark'; // Para "encerrado" ou outros
+                }
+                
+                let statusTexto = data.status || 'Não informado';
+                // Se estivermos no modo demo, pode vir 'aberto' do DB (hardcoded)
+                // mas a data estar no passado. Vamos ajustar.
+                try {
+                    if (data.prazo_submissao && new Date(data.prazo_submissao) < new Date()) {
+                        statusTexto = "Encerrado";
+                        statusBadgeClass = 'bg-danger'; 
+                    }
+                } catch(e) {}
 
-                // Formatação do corpo do modal
+
                 editalModalBody.innerHTML = `
                     <dl class="row">
                         <dt class="col-sm-3">Órgão Fomentador</dt>
                         <dd class="col-sm-9">${data.orgao || 'Não informado'}</dd>
 
                         <dt class="col-sm-3">Status</dt>
-                        <dd class="col-sm-9"><span class="badge bg-success text-uppercase">${data.status || 'Não informado'}</span></dd>
+                        <dd class="col-sm-9"><span class="badge ${statusBadgeClass} text-uppercase">${statusTexto}</span></dd>
 
                         <dt class="col-sm-3">Modalidade</dt>
                         <dd class="col-sm-9">${data.modalidade || 'Não informada'}</dd>
@@ -255,11 +276,17 @@
 
                         <dt class="col-sm-3">Áreas/Tema</dt>
                         <dd class="col-sm-9">${data.areas_tema || 'Não informado'}</dd>
+
+                        <!-- CAMPO SEPARADO -->
+                        <dt class="col-sm-3">Elegibilidade</dt>
+                        <dd class="col-sm-9">${data.elegibilidade || 'Não informada'}</dd>
                     </dl>
                     <hr>
-                    <h5>Elegibilidade/Resumo</h5>
-                    <p>${data.elegibilidade || data.texto_pdf || 'Descrição não disponível.'}</p>
+                    <!-- CAMPO SEPARADO -->
+                    <h5>Resumo (Extraído do PDF)</h5>
+                    <p>${(data.texto_pdf && data.texto_pdf.trim() !== "") ? data.texto_pdf : '<i>Resumo não disponível (PDF não encontrado ou não pôde ser lido).</i>'}</p>
                 `;
+                // *** FIM DA CORREÇÃO ***
                 
                 editalModalLink.href = data.link_pagina || '#';
                 if (!data.link_pagina || data.link_pagina === '#') {

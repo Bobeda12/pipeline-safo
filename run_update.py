@@ -106,10 +106,9 @@ def seed_initial_data(motor):
         cursor.execute("SELECT COUNT(*) as count FROM linha_ime")
         if cursor.fetchone()['count'] == 0:
             print("[Seed Data] Tabela 'linha_ime' vazia. Adicionando dados reais do IME...")
-            
-            # --- ATUALIZADO: Dados reais extraídos do .docx ---
-            # (programa, linha, descricao, emails_contato, embedding, user_id)
-            # Assumindo user_id=1 para 'admin@ime.br'
+             # --- ATUALIZADO: Dados reais extraídos do .docx ---
+             # (programa, linha, descricao, emails_contato, embedding, user_id)
+             # Assumindo user_id=1 para 'admin@ime.br'
             linhas_data = [
                 ('Engenharia Cartográfica', 'Imageamento Digital',
                  """A linha de pesquisa de Imageamento Digital tem por objetivos específicos o processamento, a análise de imagens digitais e a compreensão de cenas, com base nos dados provenientes de sensores ativos e passivos, em todos os seus níveis de aquisição. Destaca-se, nesta linha, a correção de distorções radiométricas e geométricas em imagens digitais por meio de técnicas de fotogrametria, o emprego de sensores hiperespectrais e de imagens multitemporais multisensores para a melhor compreensão da dinâmica de uso e cobertura da terra. O desenvolvimento de técnicas e conhecimentos baseados em abordagens avançadas para a detecção de alvos e reconhecimento de feições cartográficas é feito com o uso de abordagens como a neurocomputação e de análises de imagens baseadas em objetos georreferenciados (OBIA). O uso do imageamento orbital permite a obtenção contínua de informações de toda a superfície do País com intervalos regulares de poucos dias ou até de horas, tornando importante o domínio dos métodos de obtenção de informações georreferenciadas a partir de um imenso volume de dados espaciais amplamente disponíveis atualmente, devido à crescente tecnologia de satélites e das plataformas baseadas em drone (VARP ou VANT).""",
@@ -317,10 +316,12 @@ def run_finep_crawler(motor):
         # --- MUDANÇA: Capturando a string original do prazo ---
         prazo_str = item.get('Prazo Final', 'Prazo não encontrado')
         prazo_date = parse_prazo(prazo_str)
-        if prazo_date and prazo_date < datetime.date.today():
-            print(f"  Filtro (Prazo): Prazo expirado em {prazo_date}. Ignorando.")
-            editais_ignorados_count += 1
-            continue
+        # --- MODIFICADO PARA DEMONSTRAÇÃO ---
+        # Filtro de prazo desativado para permitir editais encerrados
+        # if prazo_date and prazo_date < datetime.date.today():
+        #     print(f"  Filtro (Prazo): Prazo expirado em {prazo_date}. Ignorando.")
+        #     editais_ignorados_count += 1
+        #     continue
             
         # --- FILTRO 3: Elegibilidade (Conforme sua sugestão) ---
         # --- MUDANÇA: Capturando a string original do público-alvo ---
@@ -485,4 +486,3 @@ def run_complete_update():
 
 if __name__ == "__main__":
     run_complete_update()
-
