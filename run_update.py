@@ -14,6 +14,11 @@ from motor_ia import MotorDeCompatibilidade
 from werkzeug.security import generate_password_hash
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 import torch
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer as SumyTokenizer # Renomeado para evitar conflito
+from sumy.summarizers.lsa import LsaSummarizer as Lsa
+from sumy.nlp.stemmers import Stemmer
+from sumy.utils import get_stop_words
 
 # --- NOVO IMPORT ---
 from notificador import enviar_notificacao_match 
@@ -44,6 +49,17 @@ except Exception as e:
     print(f"AVISO: Falha ao carregar modelo de sumarização: {e}. Resumos não serão gerados.")
     model_sum = None
     tokenizer_sum = None
+
+print("[Setup] Carregando sumarizador extrativo (Sumy)...")
+try:
+    LANGUAGE = "portuguese"
+    stemmer = Stemmer(LANGUAGE)
+    summarizer_lsa = Lsa(stemmer)
+    summarizer_lsa.stop_words = get_stop_words(LANGUAGE)
+    print("[Setup] Sumarizador extrativo carregado.")
+except Exception as e:
+    print(f"AVISO: Falha ao carregar o Sumy: {e}. O fallback de resumo pode ser de baixa qualidade.")
+    summarizer_lsa = None
 
 # --- Funções Auxiliares ---
 
@@ -252,33 +268,60 @@ def seed_initial_data(motor):
 
 # Em run_update.py, pode ser antes de 'run_finep_crawler'
 
-def gerar_resumo(texto_completo, max_input_length=1024, num_sentences_fallback=5):
+def gerar_resumo(texto_completo, max_input_length=1024, num_sentences_extractive=10):
     """
-    Gera um resumo abstrativo do texto completo usando o modelo T5.
+    Gera um resumo HÍBRIDO:
+    1. Usa Sumy (LSA) para EXTRAIR as X sentenças mais importantes do texto longo.
+    2. Usa T5 (IA) para REESCREVER (abstrair) essas sentenças em um resumo coeso.
     """
+    
+    # Fallback 1: Se o modelo T5 (IA principal) não carregou
     if not model_sum or not tokenizer_sum:
-        print("  AVISO: Modelo de sumarização não carregado. Usando fallback (primeiras frases).")
+        print("  AVISO: Modelo T5 não carregado. Usando fallback extrativo (Sumy).")
+        if not summarizer_lsa:
+            return "Resumo não disponível (Modelos não carregados)."
         try:
-            sentences = texto_completo.split('.')
-            fallback_summary = '. '.join(sentences[:num_sentences_fallback]).strip()
-            return fallback_summary + "..." if len(sentences) > num_sentences_fallback else fallback_summary
-        except Exception:
+            parser = PlaintextParser.from_string(texto_completo, SumyTokenizer(LANGUAGE))
+            summary_sentences = summarizer_lsa(parser.document, num_sentences_extractive)
+            return " ".join([str(s) for s in summary_sentences])
+        except Exception as e:
+            print(f"  ERRO no fallback do Sumy: {e}")
             return "Resumo não disponível."
 
-    if not texto_completo or not texto_completo.strip():
-        return "Nenhuma informação textual para resumir."
-
+    # Fallback 2: Se o texto for muito curto ou vazio
+    if not texto_completo or len(texto_completo) < 500:
+        print("  AVISO: Texto muito curto para sumarização híbrida. Usando T5 direto.")
+        # (Se o texto for curto, o T5 dá conta sozinho)
+        try:
+            input_text = "resumir: " + texto_completo
+            inputs = tokenizer_sum(input_text, max_length=512, truncation=True, return_tensors="pt")
+            summary_ids = model_sum.generate(inputs["input_ids"], num_beams=4, max_length=150, min_length=30, early_stopping=True)
+            return tokenizer_sum.decode(summary_ids[0], skip_special_tokens=True)
+        except Exception as e_short:
+            print(f"  ERRO no T5 (texto curto): {e_short}")
+            return "Resumo não disponível."
+    
+    # --- MÉTODO HÍBRIDO (O caminho principal) ---
     try:
-        # O T5 espera um prefixo para a tarefa de sumarização
-        input_text = "resumir: " + texto_completo
-
-        # Trunca o input para o limite do modelo (ex: 1024 tokens)
+        # Etapa 1: Sumarização Extrativa (Pega as X melhores sentenças do texto todo)
+        print("  (Sumarizador Híbrido - Etapa 1: Extraindo sentenças-chave...)")
+        if not summarizer_lsa:
+            raise Exception("Sumarizador LSA (Sumy) não foi carregado.")
+            
+        parser = PlaintextParser.from_string(texto_completo, SumyTokenizer(LANGUAGE))
+        summary_sentences = summarizer_lsa(parser.document, num_sentences_extractive)
+        texto_focado = " ".join([str(s) for s in summary_sentences])
+        
+        # Etapa 2: Sumarização Abstrativa (Pede para a IA reescrever as sentenças-chave)
+        print("  (Sumarizador Híbrido - Etapa 2: Gerando resumo com IA...)")
+        input_text = "resumir: " + texto_focado
+        
+        # Truncamos o input focado (sentenças-chave) para o limite do T5
         inputs = tokenizer_sum(input_text, 
                                max_length=max_input_length, 
                                truncation=True, 
                                return_tensors="pt")
 
-        # Gera o resumo
         summary_ids = model_sum.generate(inputs["input_ids"], 
                                        num_beams=4, 
                                        max_length=150,  # Comprimento máximo do resumo
@@ -286,14 +329,16 @@ def gerar_resumo(texto_completo, max_input_length=1024, num_sentences_fallback=5
                                        early_stopping=True)
 
         resumo = tokenizer_sum.decode(summary_ids[0], skip_special_tokens=True)
-        print(f"  Resumo gerado com sucesso ({len(resumo)} caracteres).")
+        print(f"  Resumo HÍBRIDO gerado com sucesso ({len(resumo)} caracteres).")
         return resumo
 
     except Exception as e:
-        print(f"  ERRO ao gerar resumo com IA: {e}. Usando fallback.")
+        print(f"  ERRO CRÍTICO ao gerar resumo HÍBRIDO: {e}")
+        traceback.print_exc()
+        # Fallback final: só retorna as 5 primeiras frases
         sentences = texto_completo.split('.')
-        fallback_summary = '. '.join(sentences[:num_sentences_fallback]).strip()
-        return fallback_summary + "..." if len(sentences) > num_sentences_fallback else fallback_summary
+        fallback_summary = '. '.join(sentences[:5]).strip()
+        return fallback_summary + "..." if len(sentences) > 5 else fallback_summary
 
 def run_finep_crawler(motor):
     """
@@ -417,6 +462,67 @@ def run_finep_crawler(motor):
                 texto_pdf = ""
             else:
                 texto_pdf = texto_pdf_extraido
+
+        # ===================================================================
+        # NOVA ETAPA: "Fatiar" o PDF para focar no que importa (VERSÃO 2.0)
+        # ===================================================================
+        print("  Fatiando o texto do PDF para focar no conteúdo principal...")
+        texto_focado_para_resumo = texto_pdf
+        texto_pdf_upper = texto_pdf.upper() # Normaliza para maiúsculas
+        
+        # Palavras-chave de INÍCIO (Da mais específica para a mais genérica)
+        start_keywords = [
+            "DESAFIOS TECNOLÓGICOS", 
+            "LINHAS TEMÁTICAS", 
+            "OBJETIVOS ESPECÍFICOS", 
+            "OBJETIVO" # Último recurso
+        ]
+        
+        # Palavras-chave de FIM (Marcam o fim do conteúdo bom)
+        end_keywords = [
+            "RECURSOS FINANCEIROS", 
+            "ELEGIBILIDADE", 
+            "CRITÉRIOS DE ELEGIBILIDADE",
+            "CRONOGRAMA"
+        ]
+
+        posicao_inicio = -1
+        posicao_fim = -1
+
+        # 1. Encontra o melhor ponto de INÍCIO (agora na ordem correta)
+        for key in start_keywords:
+            posicao_inicio = texto_pdf_upper.find(key)
+            if posicao_inicio != -1:
+                print(f"  Encontrada keyword de INÍCIO: '{key}'.")
+                break
+        
+        if posicao_inicio == -1:
+            print("  AVISO: Nenhuma keyword de início encontrada. Usando texto completo.")
+            texto_focado_para_resumo = texto_pdf
+        else:
+            # 2. Se achou um início, tenta achar um FIM
+            # Pegamos o texto fatiado do início em diante
+            texto_fatiado_inicio = texto_pdf[posicao_inicio:]
+            texto_fatiado_inicio_upper = texto_fatiado_inicio.upper()
+            
+            # Procuramos o ponto final SÓ DEPOIS do ponto inicial
+            posicao_fim_relativa = -1
+            for key in end_keywords:
+                posicao_fim_relativa = texto_fatiado_inicio_upper.find(key)
+                if posicao_fim_relativa != -1:
+                    print(f"  Encontrada keyword de FIM: '{key}'.")
+                    break
+            
+            if posicao_fim_relativa == -1:
+                print("  AVISO: Nenhuma keyword de fim encontrada. Usando o texto do início até 5000 caracteres.")
+                texto_focado_para_resumo = texto_fatiado_inicio[:5000] # Pega um pedaço grande
+            else:
+                # Pega só o miolo relevante
+                texto_focado_para_resumo = texto_fatiado_inicio[:posicao_fim_relativa]
+
+        # ===================================================================
+        # FIM DA NOVA ETAPA
+        # ===================================================================      
         
         # ===================================================================
         # INÍCIO DO BLOCO CORRIGIDO (INDENTADO PARA DENTRO DO LOOP 'for')
@@ -424,7 +530,7 @@ def run_finep_crawler(motor):
 
         # --- GERAÇÃO DO RESUMO ---
         print("  Gerando resumo do texto do PDF...")
-        resumo_pdf = gerar_resumo(texto_pdf)
+        resumo_pdf = gerar_resumo(texto_focado_para_resumo)
         # --- FIM DA GERAÇÃO ---
 
         # --- Preparação dos dados para o DB ---

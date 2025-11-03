@@ -169,7 +169,7 @@ class MotorDeCompatibilidade:
             titulo, orgao, link_pagina, texto_pdf, resumo_pdf, status, modalidade,
             prazo_submissao, valor_estimado, elegibilidade, areas_tema, data_captura
         ) VALUES (
-            :titulo, :orgao, :link_pagina, :texto_pdf, "resumo_pdf, :status, :modalidade,
+            :titulo, :orgao, :link_pagina, :texto_pdf, :resumo_pdf, :status, :modalidade,
             :prazo_submissao, :valor_estimado, :elegibilidade, :areas_tema, :data_captura
         )
         """
