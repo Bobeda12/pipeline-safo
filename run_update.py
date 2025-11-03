@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 from PyPDF2 import PdfReader # Para extrair texto do PDF
 from motor_ia import MotorDeCompatibilidade
 from werkzeug.security import generate_password_hash
+from transformers import T5Tokenizer, T5ForConditionalGeneration
+import torch
 
 # --- NOVO IMPORT ---
 from notificador import enviar_notificacao_match 
@@ -29,6 +31,19 @@ PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR = ["empresa", "startup", "exclusivo para"]
 # Limiar de score para enviar notificação por e-mail (Ex: 0.35 = 35%)
 # (Conforme doc Projeto IPE2)
 LIMIAR_NOTIFICACAO = 0.35 
+
+# Em run_update.py, abaixo das outras configurações globais
+print("[Setup] Carregando modelo de sumarização (pode levar um tempo)...")
+try:
+    # Usamos um modelo T5 otimizado para sumarização em português
+    MODEL_NAME = "recogna-nlp/ptt5-base-summ"
+    tokenizer_sum = T5Tokenizer.from_pretrained(MODEL_NAME)
+    model_sum = T5ForConditionalGeneration.from_pretrained(MODEL_NAME)
+    print("[Setup] Modelo de sumarização carregado com sucesso.")
+except Exception as e:
+    print(f"AVISO: Falha ao carregar modelo de sumarização: {e}. Resumos não serão gerados.")
+    model_sum = None
+    tokenizer_sum = None
 
 # --- Funções Auxiliares ---
 
@@ -235,6 +250,50 @@ def seed_initial_data(motor):
     finally:
         conn.close()
 
+# Em run_update.py, pode ser antes de 'run_finep_crawler'
+
+def gerar_resumo(texto_completo, max_input_length=1024, num_sentences_fallback=5):
+    """
+    Gera um resumo abstrativo do texto completo usando o modelo T5.
+    """
+    if not model_sum or not tokenizer_sum:
+        print("  AVISO: Modelo de sumarização não carregado. Usando fallback (primeiras frases).")
+        try:
+            sentences = texto_completo.split('.')
+            fallback_summary = '. '.join(sentences[:num_sentences_fallback]).strip()
+            return fallback_summary + "..." if len(sentences) > num_sentences_fallback else fallback_summary
+        except Exception:
+            return "Resumo não disponível."
+
+    if not texto_completo or not texto_completo.strip():
+        return "Nenhuma informação textual para resumir."
+
+    try:
+        # O T5 espera um prefixo para a tarefa de sumarização
+        input_text = "resumir: " + texto_completo
+
+        # Trunca o input para o limite do modelo (ex: 1024 tokens)
+        inputs = tokenizer_sum(input_text, 
+                               max_length=max_input_length, 
+                               truncation=True, 
+                               return_tensors="pt")
+
+        # Gera o resumo
+        summary_ids = model_sum.generate(inputs["input_ids"], 
+                                       num_beams=4, 
+                                       max_length=150,  # Comprimento máximo do resumo
+                                       min_length=30,   # Comprimento mínimo
+                                       early_stopping=True)
+
+        resumo = tokenizer_sum.decode(summary_ids[0], skip_special_tokens=True)
+        print(f"  Resumo gerado com sucesso ({len(resumo)} caracteres).")
+        return resumo
+
+    except Exception as e:
+        print(f"  ERRO ao gerar resumo com IA: {e}. Usando fallback.")
+        sentences = texto_completo.split('.')
+        fallback_summary = '. '.join(sentences[:num_sentences_fallback]).strip()
+        return fallback_summary + "..." if len(sentences) > num_sentences_fallback else fallback_summary
 
 def run_finep_crawler(motor):
     """
@@ -247,12 +306,8 @@ def run_finep_crawler(motor):
     if os.path.exists(JSON_OUTPUT_FILE):
         os.remove(JSON_OUTPUT_FILE)
         
-    # Executa o Scrapy como um subprocesso. Esta é a forma mais robusta
-    # de rodar Scrapy de dentro de outro script, evitando problemas com o 'reactor' do Twisted.
+    # Executa o Scrapy como um subprocesso.
     try:
-        # Usamos sys.executable para garantir que estamos usando o mesmo python
-        # -m scrapy: executa o scrapy como módulo
-        # -L INFO: Reduz o log para não poluir
         comando = [
             sys.executable, "-m", "scrapy", "runspider", 
             "finep_spider.py", "-o", JSON_OUTPUT_FILE, "-L", "INFO"
@@ -295,7 +350,6 @@ def run_finep_crawler(motor):
     
     editais_novos_count = 0
     editais_ignorados_count = 0
-    # --- MUDANÇA: Definindo o limite de 1 ano atrás ---
     data_limite_antigo = datetime.date.today() - datetime.timedelta(days=365)
     
     for item in crawler_results:
@@ -313,7 +367,6 @@ def run_finep_crawler(motor):
             continue
 
         # --- FILTRO 2: Prazo Expirado (Conforme sua sugestão) ---
-        # --- MUDANÇA: Capturando a string original do prazo ---
         prazo_str = item.get('Prazo Final', 'Prazo não encontrado')
         prazo_date = parse_prazo(prazo_str)
         # --- MODIFICADO PARA DEMONSTRAÇÃO ---
@@ -324,7 +377,6 @@ def run_finep_crawler(motor):
         #     continue
             
         # --- FILTRO 3: Elegibilidade (Conforme sua sugestão) ---
-        # --- MUDANÇA: Capturando a string original do público-alvo ---
         publico_alvo_str = item.get('Público-alvo', 'Não especificado')
         publico_alvo_lower = publico_alvo_str.lower()
         if any(palavra in publico_alvo_lower for palavra in PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR):
@@ -333,7 +385,6 @@ def run_finep_crawler(motor):
             continue
             
         # --- NOVO FILTRO 4: Editais Antigos Sem Prazo (Sua sugestão) ---
-        # Verifica se o prazo E o público-alvo estão ausentes
         sem_prazo = (prazo_str == 'Prazo não encontrado' or prazo_str == '')
         sem_publico = (publico_alvo_str == 'Não especificado' or publico_alvo_str == '')
         
@@ -346,24 +397,35 @@ def run_finep_crawler(motor):
                 editais_ignorados_count += 1
                 continue
             elif data_pub_date is None:
-                 # Se não tiver prazo, nem público, nem data de publicação, melhor ignorar.
-                 print(f"  Filtro (Dados Insuficientes): Edital sem prazo, público ou data de publicação. Ignorando.")
-                 editais_ignorados_count += 1
-                 continue
+                print(f"  Filtro (Dados Insuficientes): Edital sem prazo, público ou data de publicação. Ignorando.")
+                editais_ignorados_count += 1
+                continue
             # Se for recente (menos de 1 ano), ele passa e é processado.
 
         print("  Status: Edital NOVO e passou nos pré-filtros. Processando PDF...")
 
         # --- ETAPA CARA: Processamento do PDF ---
         link_pdf = item.get('Link PDF')
+        texto_pdf = "" # Garante que a variável exista
         if not link_pdf:
             print("  AVISO: Edital sem link de PDF. Será inserido sem 'texto_pdf'.")
             texto_pdf = ""
         else:
-            texto_pdf = extrair_texto_pdf(link_pdf)
-            if texto_pdf is None:
+            texto_pdf_extraido = extrair_texto_pdf(link_pdf)
+            if texto_pdf_extraido is None:
                 print("  AVISO: Falha na extração do PDF. Será inserido sem 'texto_pdf'.")
                 texto_pdf = ""
+            else:
+                texto_pdf = texto_pdf_extraido
+        
+        # ===================================================================
+        # INÍCIO DO BLOCO CORRIGIDO (INDENTADO PARA DENTRO DO LOOP 'for')
+        # ===================================================================
+
+        # --- GERAÇÃO DO RESUMO ---
+        print("  Gerando resumo do texto do PDF...")
+        resumo_pdf = gerar_resumo(texto_pdf)
+        # --- FIM DA GERAÇÃO ---
 
         # --- Preparação dos dados para o DB ---
         edital_data = {
@@ -371,21 +433,26 @@ def run_finep_crawler(motor):
             'orgao': 'FINEP',
             'link_pagina': link_pagina,
             'texto_pdf': texto_pdf,
-            'status': 'aberto', # Sabemos que está aberto pela URL do crawler
-            'modalidade': None, # Nosso crawler não captura
+            'resumo_pdf': resumo_pdf, # <-- PASSE O RESUMO AQUI
+            'status': 'aberto', 
+            'modalidade': None, 
             'prazo_submissao': prazo_date,
-            'valor_estimado': None, # Nosso crawler não captura
+            'valor_estimado': None, 
             'elegibilidade': item.get('Público-alvo'),
-            'areas_tema': ", ".join(item.get('Tema', [])), # Converte lista em string
+            'areas_tema': ", ".join(item.get('Tema', [])),
             'data_captura': datetime.datetime.now()
         }
-        
+            
         # --- Inserção no Banco de Dados ---
         if motor.insert_edital(edital_data):
             print(f"  SUCESSO: Edital '{item.get('Título')}' inserido no banco.")
             editais_novos_count += 1
         else:
             print(f"  ERRO: Falha ao inserir edital '{item.get('Título')}' no banco.")
+            
+        # ===================================================================
+        # FIM DO BLOCO CORRIGIDO
+        # ===================================================================
 
     print("\n--- Resumo da Coleta ---")
     print(f"Editais novos inseridos: {editais_novos_count}")

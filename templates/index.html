@@ -257,34 +257,30 @@
                 } catch(e) {}
 
 
-                editalModalBody.innerHTML = `
-                    <dl class="row">
-                        <dt class="col-sm-3">Órgão Fomentador</dt>
-                        <dd class="col-sm-9">${data.orgao || 'Não informado'}</dd>
+                // Formatação do corpo do modal (ATUALIZADA)
+            editalModalBody.innerHTML = `
+                <dl class="row">
+                    <dt class="col-sm-3">Órgão Fomentador</dt>
+                    <dd class="col-sm-9">${data.orgao || 'Não informado'}</dd>
 
-                        <dt class="col-sm-3">Status</dt>
-                        <dd class="col-sm-9"><span class="badge ${statusBadgeClass} text-uppercase">${statusTexto}</span></dd>
+                    <dt class="col-sm-3">Status</dt>
+                    <dd class="col-sm-9"><span class="badge bg-success text-uppercase">${data.status || 'Não informado'}</span></dd>
 
-                        <dt class="col-sm-3">Modalidade</dt>
-                        <dd class="col-sm-9">${data.modalidade || 'Não informada'}</dd>
+                    <dt class="col-sm-3">Prazo Submissão</dt>
+                    <dd class="col-sm-9">${prazoFormatado}</dd>
 
-                        <dt class="col-sm-3">Prazo Submissão</dt>
-                        <dd class="col-sm-9">${prazoFormatado}</dd>
+                    <dt class="col-sm-3">Áreas/Tema</dt>
+                    <dd class="col-sm-9">${data.areas_tema || 'Não informado'}</dd>
 
-                        <dt class="col-sm-3">Valor Estimado</dt>
-                        <dd class="col-sm-9">${data.valor_estimado || 'Não informado'}</dd>
+                    <dt class="col-sm-3">Elegibilidade</dt>
+                    <dd class="col-sm-9">${data.elegibilidade || 'Não informado'}</dd>
+                </dl>
+                <hr>
 
-                        <dt class="col-sm-3">Áreas/Tema</dt>
-                        <dd class="col-sm-9">${data.areas_tema || 'Não informado'}</dd>
+                <h5>Resumo do Edital</h5>
+                <p>${data.resumo_pdf || 'Resumo não disponível.'}</p>
 
-                        <!-- CAMPO SEPARADO -->
-                        <dt class="col-sm-3">Elegibilidade</dt>
-                        <dd class="col-sm-9">${data.elegibilidade || 'Não informada'}</dd>
-                    </dl>
-                    <hr>
-                    <!-- CAMPO SEPARADO -->
-                    <h5>Resumo (Extraído do PDF)</h5>
-                    <p>${(data.texto_pdf && data.texto_pdf.trim() !== "") ? data.texto_pdf : '<i>Resumo não disponível (PDF não encontrado ou não pôde ser lido).</i>'}</p>
+                
                 `;
                 // *** FIM DA CORREÇÃO ***
                 

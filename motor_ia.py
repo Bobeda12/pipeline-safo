@@ -92,6 +92,7 @@ class MotorDeCompatibilidade:
                 orgao TEXT,
                 link_pagina TEXT UNIQUE, -- Chave única para evitar duplicatas
                 texto_pdf TEXT,
+                resumo_pdf TEXT,
                 status TEXT,
                 modalidade TEXT,
                 prazo_submissao DATETIME,
@@ -165,10 +166,10 @@ class MotorDeCompatibilidade:
 
         query = """
         INSERT INTO edital (
-            titulo, orgao, link_pagina, texto_pdf, status, modalidade,
+            titulo, orgao, link_pagina, texto_pdf, resumo_pdf, status, modalidade,
             prazo_submissao, valor_estimado, elegibilidade, areas_tema, data_captura
         ) VALUES (
-            :titulo, :orgao, :link_pagina, :texto_pdf, :status, :modalidade,
+            :titulo, :orgao, :link_pagina, :texto_pdf, "resumo_pdf, :status, :modalidade,
             :prazo_submissao, :valor_estimado, :elegibilidade, :areas_tema, :data_captura
         )
         """
