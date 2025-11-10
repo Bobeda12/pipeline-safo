@@ -35,7 +35,7 @@ PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR = ["empresa", "startup", "exclusivo para"]
 # --- NOVA CONFIGURAÇÃO ---
 # Limiar de score para enviar notificação por e-mail (Ex: 0.35 = 35%)
 # (Conforme doc Projeto IPE2)
-LIMIAR_NOTIFICACAO = 0.35 
+LIMIAR_NOTIFICACAO = 0.50 
 
 # Em run_update.py, abaixo das outras configurações globais
 print("[Setup] Carregando modelo de sumarização (pode levar um tempo)...")
@@ -429,23 +429,6 @@ def run_finep_crawler(motor):
             editais_ignorados_count += 1
             continue
             
-        # --- NOVO FILTRO 4: Editais Antigos Sem Prazo (Sua sugestão) ---
-        sem_prazo = (prazo_str == 'Prazo não encontrado' or prazo_str == '')
-        sem_publico = (publico_alvo_str == 'Não especificado' or publico_alvo_str == '')
-        
-        if sem_prazo and sem_publico:
-            data_pub_str = item.get('Data de Publicação', 'Não encontrada')
-            data_pub_date = parse_data_publicacao(data_pub_str)
-            
-            if data_pub_date and data_pub_date < data_limite_antigo:
-                print(f"  Filtro (Antigo): Edital sem prazo/público, publicado em {data_pub_date} (mais de 1 ano). Ignorando.")
-                editais_ignorados_count += 1
-                continue
-            elif data_pub_date is None:
-                print(f"  Filtro (Dados Insuficientes): Edital sem prazo, público ou data de publicação. Ignorando.")
-                editais_ignorados_count += 1
-                continue
-            # Se for recente (menos de 1 ano), ele passa e é processado.
 
         print("  Status: Edital NOVO e passou nos pré-filtros. Processando PDF...")
 
@@ -534,13 +517,24 @@ def run_finep_crawler(motor):
         # --- FIM DA GERAÇÃO ---
 
         # --- Preparação dos dados para o DB ---
+        
+        # --- NOVO: Define o status com base na data do prazo ---
+        # (A variável 'prazo_date' foi definida logo acima, por volta da linha 387)
+        status_db = 'outro' # Padrão (ex: "em breve", "não informado")
+        if prazo_date: # Se a data foi parseada com sucesso
+            if prazo_date < datetime.date.today():
+                status_db = 'fechado'
+            else:
+                status_db = 'aberto'
+        # Se prazo_date for None, status_db permanece 'outro'
+
         edital_data = {
             'titulo': item.get('Título'),
             'orgao': 'FINEP',
             'link_pagina': link_pagina,
             'texto_pdf': texto_pdf,
-            'resumo_pdf': resumo_pdf, # <-- PASSE O RESUMO AQUI
-            'status': 'aberto', 
+            'resumo_pdf': resumo_pdf,
+            'status': status_db, # <-- MODIFICADO: Agora é baseado na data
             'modalidade': None, 
             'prazo_submissao': prazo_date,
             'valor_estimado': None, 

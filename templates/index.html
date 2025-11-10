@@ -2,16 +2,53 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
+
+<style>
+    #abasProgramas .nav-link {
+        color: #003366; /* Cor principal da marca */
+        font-weight: 500;
+        border-bottom: 3px solid transparent; /* Borda sutil */
+        border-top: none;
+        border-left: none;
+        border-right: none;
+    }
+    /* Efeito HOVER */
+    #abasProgramas .nav-link:not(.active):hover {
+        background-color: #f8f9fa; /* Um cinza bem claro */
+        border-bottom: 3px solid #cfe2ff; /* Azul claro do bootstrap */
+    }
+    /* Aba ATIVA */
+    #abasProgramas .nav-link.active {
+        color: #fff !important; /* Texto branco */
+        background-color: #003366 !important; /* Cor principal da marca */
+        border-color: #003366 !important;
+    }
+    /* Remove o arredondamento superior que o bootstrap força */
+    .nav-tabs .nav-link {
+        border-top-left-radius: 0.375rem; /* Valor padrão do Bootstrap */
+        border-top-right-radius: 0.375rem;
+    }
+    #abasProgramas .nav-link {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+    }
+</style>
+<div class="row mb-4 align-items-center">
 <!-- CORREÇÃO DE LAYOUT: 
      Esta linha (row) agora verifica se o usuário está logado.
      Se NÃO estiver logado, o dropdown ocupa 100% da largura (col-12).
      Se ESTIVER logado, o dropdown ocupa 8 colunas e o botão 4, alinhando-se à direita.
 -->
-<div class="row mb-4 align-items-center"> <!-- Alinha verticalmente -->
-    <div class="{% if session.user_id %}col-lg-8{% else %}col-12{% endif %} mb-3 mb-lg-0"> 
+<div class="row mb-4 align-items-center"> <div class="{% if session.user_id %}col-lg-8{% else %}col-12{% endif %} mb-3 mb-lg-0"> 
+        
+        <ul class="nav nav-tabs mb-3" id="abasProgramas" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="loading-tab" data-bs-toggle="tab" type="button" role="tab" aria-selected="true" disabled>Carregando Programas...</button>
+            </li>
+        </ul>
+        
         <div class="card p-3 shadow-sm h-100"> 
-            <label for="selectLinha" class="form-label fs-5 mb-2"> <!-- Reduz margem inferior -->
-                <strong>Selecione Sua Linha de Pesquisa</strong>
+            <label for="selectLinha" class="form-label fs-5 mb-2"> <strong>Selecione Sua Linha de Pesquisa</strong>
             </label>
             <select id="selectLinha" class="form-select form-select-lg">
                 <option value="">-- Carregando Linhas de Pesquisa... --</option>
@@ -34,6 +71,16 @@
 </div>
 
 <hr class="mb-4"> <!-- Aumenta margem inferior do hr -->
+
+<div class="row mb-3 align-items-center">
+    <div class="col-lg-4 col-md-6">
+        <label for="selectStatus" class="form-label"><strong>Filtrar por Status:</strong></label>
+        <select id="selectStatus" class="form-select form-select"> <option value="todos" selected>Todos</option>
+            <option value="aberto">Abertos</option>
+            <option value="fechado">Fechados</option>
+        </select>
+    </div>
+</div>
 
 <h2 class="mt-4 mb-3">Sugestões de Editais</h2>
 
@@ -68,67 +115,131 @@
     </table>
 </div>
 
+<nav id="paginationNav" aria-label="Navegação dos Editais" class="mt-4 d-flex justify-content-center">
+    <ul id="paginationControls" class="pagination">
+        </ul>
+</nav>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
     console.log("[DEBUG] index.html: Bloco de script iniciado.");
 
-    // Variáveis Globais
+    // --- Variáveis Globais ---
     let todosOsMatches = [];
+    let linhasPorPrograma = {}; 
+    
+    // --- NOVO: Variáveis de Paginação ---
+    const ITENS_POR_PAGINA = 10; // Defina quantos itens por página
+    let paginaAtual = 1;
+    
+    // --- Referências de Elementos ---
+    const abasContainer = document.getElementById('abasProgramas');
     const selectLinha = document.getElementById('selectLinha');
     const tabela = document.getElementById('tabelaEditais');
     const corpoTabela = document.getElementById('corpoTabela');
     const statusDiv = document.getElementById('mensagemAguarde'); 
+    const selectStatusFiltro = document.getElementById('selectStatus');
+    const paginationNav = document.getElementById('paginationNav');
+    const paginationControls = document.getElementById('paginationControls');
     
-    // Referência ao Modal (definido em base.html)
     let editalModal; 
     let editalModalTitle, editalModalBody, editalModalLink;
 
+    // --- Funções das Abas (Já corrigidas) ---
+    function criarAbas(programas) {
+        if (!abasContainer) return;
+        abasContainer.innerHTML = ''; 
+        
+        programas.forEach((programa, index) => {
+            const li = document.createElement('li');
+            li.className = 'nav-item';
+            li.setAttribute('role', 'presentation');
+            
+            const button = document.createElement('button');
+            button.className = 'nav-link';
+            button.id = `tab-${index}`;
+            button.setAttribute('data-bs-toggle', 'tab');
+            button.setAttribute('data-programa', programa);
+            button.type = 'button';
+            button.role = 'tab';
+            button.textContent = programa;
 
+            if (index === 0) {
+                button.classList.add('active'); 
+                button.setAttribute('aria-selected', 'true');
+            } else {
+                button.setAttribute('aria-selected', 'false');
+            }
+            
+            li.appendChild(button);
+            abasContainer.appendChild(li);
+        });
+    }
+
+    function popularDropdownParaPrograma(programa) {
+        if (!selectLinha) return;
+        
+        // --- NOVO: Reseta a página ao mudar de aba ---
+        paginaAtual = 1; 
+        
+        const linhas = linhasPorPrograma[programa] || [];
+        selectLinha.innerHTML = ''; 
+        
+        if (linhas.length === 0) {
+            selectLinha.innerHTML = '<option value="">Nenhuma linha encontrada</option>';
+            return;
+        }
+
+        selectLinha.innerHTML = '<option value="">-- Escolha uma Linha de Pesquisa --</option>';
+        
+        linhas.forEach(linha => {
+            const option = document.createElement('option');
+            option.value = linha.id;
+            option.textContent = linha.linha;
+            selectLinha.appendChild(option);
+        });
+        
+        exibirResultados(); // Limpa a tabela
+    }
+
+    // --- Funções de Carga de Dados ---
     function popularDropdown() {
          console.log("[DEBUG] popularDropdown: Buscando /api/linhas-de-pesquisa...");
          
-         // Usa URL relativa. O CORS no app.py vai permitir.
          fetch('/api/linhas-de-pesquisa')
             .then(response => {
-                if (!response.ok) {
-                    console.error(`[DEBUG] popularDropdown: Falha na resposta do fetch! Status: ${response.status}`);
-                    throw new Error(`Erro HTTP! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Erro HTTP! status: ${response.status}`);
                 return response.json();
             })
             .then(linhas => {
                 console.log(`[DEBUG] popularDropdown: Recebido ${linhas.length} linhas da API.`);
                 
-                selectLinha.innerHTML = '<option value="">-- Escolha uma Linha de Pesquisa --</option>';
-                let currentPrograma = "";
+                linhasPorPrograma = {}; 
+                linhas.forEach(linha => {
+                    if (!linhasPorPrograma[linha.programa]) {
+                        linhasPorPrograma[linha.programa] = [];
+                    }
+                    linhasPorPrograma[linha.programa].push(linha);
+                });
+
+                const programas = Object.keys(linhasPorPrograma).sort();
                 
-                if (linhas.length === 0) {
-                    console.warn("[DEBUG] popularDropdown: Nenhuma linha retornada. O banco de dados está vazio?");
-                    selectLinha.innerHTML = '<option value="">Nenhuma linha encontrada</option>';
+                if (programas.length === 0) {
+                    console.warn("[DEBUG] popularDropdown: Nenhuma linha retornada.");
+                    if(abasContainer) abasContainer.innerHTML = '<li class="nav-item"><span class="nav-link disabled">Nenhum programa encontrado</span></li>';
+                    if(selectLinha) selectLinha.innerHTML = '<option value="">Nenhuma linha encontrada</option>';
                     return;
                 }
 
-                linhas.forEach(linha => {
-                    if (linha.programa !== currentPrograma) {
-                        let optgroup = selectLinha.querySelector(`optgroup[label="${linha.programa}"]`);
-                        if (!optgroup) {
-                            optgroup = document.createElement('optgroup');
-                            optgroup.label = linha.programa;
-                            selectLinha.appendChild(optgroup);
-                        }
-                        currentPrograma = linha.programa; 
-                    }
-                    const option = document.createElement('option');
-                    option.value = linha.id;
-                    option.textContent = linha.linha;
-                    selectLinha.querySelector(`optgroup[label="${linha.programa}"]`)?.appendChild(option);
-                });
+                criarAbas(programas);
+                popularDropdownParaPrograma(programas[0]);
             })
             .catch(error => {
                  console.error("[DEBUG] Erro CRÍTICO ao popular dropdown:", error);
-                 selectLinha.innerHTML = '<option value="">Erro ao carregar linhas</option>';
+                 if(abasContainer) abasContainer.innerHTML = '<li class="nav-item"><span class="nav-link disabled text-danger">Erro ao carregar</span></li>';
+                 if(selectLinha) selectLinha.innerHTML = '<option value="">Erro ao carregar linhas</option>';
             });
     }
 
@@ -138,10 +249,7 @@
         
         fetch('/api/matches')
             .then(response => {
-                if (!response.ok) { 
-                    console.error(`[DEBUG] buscarTodosOsMatches: Falha na resposta do fetch! Status: ${response.status}`);
-                    throw new Error('Falha ao buscar matches'); 
-                }
+                if (!response.ok) throw new Error('Falha ao buscar matches'); 
                 return response.json();
              })
             .then(data => {
@@ -152,44 +260,118 @@
             .catch(error => {
                 console.error("[DEBUG] Erro CRÍTICO ao buscar matches:", error);
                 statusDiv.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i>Erro ao conectar com o motor de IA ou buscar matches.';
-                statusDiv.className = 'alert alert-danger'; // Muda para vermelho em caso de erro
+                statusDiv.className = 'alert alert-danger';
             });
     }
 
+    // --- NOVO: Função para mudar de página ---
+    function mudarPagina(novaPagina) {
+        paginaAtual = novaPagina;
+        exibirResultados(); // Re-renderiza a tabela
+        // Opcional: Rolar de volta ao topo da tabela
+        tabela.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // --- NOVO: Função para renderizar os controles de paginação ---
+    function renderizarControlesPaginacao(totalItens) {
+        if (!paginationNav || !paginationControls) return;
+
+        paginationControls.innerHTML = ''; // Limpa controles antigos
+        const totalPaginas = Math.ceil(totalItens / ITENS_POR_PAGINA);
+
+        if (totalPaginas <= 1) {
+            paginationNav.style.display = 'none'; // Esconde se não precisar
+            return;
+        }
+
+        paginationNav.style.display = 'flex'; // Mostra se precisar
+
+        // --- Botão "Anterior" ---
+        const liPrev = document.createElement('li');
+        liPrev.className = 'page-item';
+        if (paginaAtual === 1) liPrev.classList.add('disabled');
+        
+        const aPrev = document.createElement('a');
+        aPrev.className = 'page-link';
+        aPrev.href = '#';
+        aPrev.innerHTML = '&laquo;'; // «
+        if (paginaAtual > 1) {
+            aPrev.onclick = (e) => { e.preventDefault(); mudarPagina(paginaAtual - 1); };
+        }
+        liPrev.appendChild(aPrev);
+        paginationControls.appendChild(liPrev);
+
+        // --- Texto "Página X de Y" ---
+        const liStatus = document.createElement('li');
+        liStatus.className = 'page-item disabled';
+        liStatus.innerHTML = `<span class="page-link" style="color: #6c757d;">Página ${paginaAtual} de ${totalPaginas}</span>`;
+        paginationControls.appendChild(liStatus);
+
+        // --- Botão "Próximo" ---
+        const liNext = document.createElement('li');
+        liNext.className = 'page-item';
+        if (paginaAtual === totalPaginas) liNext.classList.add('disabled');
+        
+        const aNext = document.createElement('a');
+        aNext.className = 'page-link';
+        aNext.href = '#';
+        aNext.innerHTML = '&raquo;'; // »
+        if (paginaAtual < totalPaginas) {
+            aNext.onclick = (e) => { e.preventDefault(); mudarPagina(paginaAtual + 1); };
+        }
+        liNext.appendChild(aNext);
+        paginationControls.appendChild(liNext);
+    }
+
+
+    // --- MODIFICADO: Função principal de renderização ---
     function exibirResultados() {
         const linhaIdSelecionada = selectLinha.value;
-        corpoTabela.innerHTML = ''; 
+        const statusSelecionado = selectStatusFiltro.value;
         
-        console.log(`[DEBUG] exibirResultados: Linha ID selecionada: '${linhaIdSelecionada}'`);
+        corpoTabela.innerHTML = ''; 
         
         if (!linhaIdSelecionada) {
             tabela.style.display = 'none';
             statusDiv.style.display = 'block';
             statusDiv.innerHTML = '<i class="bi bi-info-circle-fill me-2"></i>Selecione uma linha de pesquisa para ver os editais compatíveis.';
+            renderizarControlesPaginacao(0); // Limpa a paginação
             return;
         }
         statusDiv.style.display = 'none'; 
 
-        const matchesFiltrados = todosOsMatches.filter(match => match.linha_id == linhaIdSelecionada);
-        // MODIFICAÇÃO: No modo demo, o /api/matches já vem ordenado por score.
-        // Mas vamos manter o sort aqui caso a API mude.
+        // 1. Filtros
+        let matchesFiltrados = todosOsMatches.filter(match => match.linha_id == linhaIdSelecionada);
+        if (statusSelecionado !== 'todos') {
+            matchesFiltrados = matchesFiltrados.filter(match => match.status === statusSelecionado);
+        }
         matchesFiltrados.sort((a, b) => b.score - a.score); 
 
-        console.log(`[DEBUG] exibirResultados: Encontrados ${matchesFiltrados.length} matches para esta linha.`);
+        // 2. Paginação (Fatiar os resultados)
+        const inicioSlice = (paginaAtual - 1) * ITENS_POR_PAGINA;
+        const fimSlice = inicioSlice + ITENS_POR_PAGINA;
+        const itensDaPagina = matchesFiltrados.slice(inicioSlice, fimSlice);
 
-        if (matchesFiltrados.length === 0) {
-            corpoTabela.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum edital compatível encontrado com os critérios atuais para esta linha.</td></tr>';
+        // 3. Renderizar a tabela
+        if (itensDaPagina.length === 0) {
+            corpoTabela.innerHTML = '<tr><td colspan="4" class="text-center">Nenhum edital compatível encontrado com os filtros atuais.</td></tr>';
         } else {
-            matchesFiltrados.forEach(match => {
+            itensDaPagina.forEach(match => {
                 const scorePercentual = (match.score * 100).toFixed(1); 
                 let corScoreClass = 'text-muted';
                 if (scorePercentual >= 75) { corScoreClass = 'text-success fw-bold'; }
                 else if (scorePercentual >= 50) { corScoreClass = 'text-warning fw-bold'; }
 
-                // CORREÇÃO: Botão padronizado para btn-main-brand
+                let statusBadge = '';
+                if (match.status === 'aberto') {
+                    statusBadge = '<span class="badge bg-success ms-2">Aberto</span>';
+                } else if (match.status === 'fechado') {
+                    statusBadge = '<span class="badge bg-danger ms-2">Fechado</span>';
+                }
+
                 const linhaHtml = `
                     <tr>
-                        <td>${match.edital_titulo || 'Título não disponível'}</td>
+                        <td>${match.edital_titulo || 'Título não disponível'} ${statusBadge}</td>
                         <td>${match.programa || '-'}</td>
                         <td class="${corScoreClass}">${scorePercentual}%</td>
                         <td class="text-center">
@@ -203,15 +385,14 @@
             });
         }
         tabela.style.display = 'table';
+        
+        // 4. Renderizar os controles de paginação
+        renderizarControlesPaginacao(matchesFiltrados.length);
     }
 
-    // Função para mostrar detalhes no Modal
+    // --- Função de Detalhes (Sem alteração) ---
     function mostrarDetalhes(editalId) {
-        console.log(`[DEBUG] mostrarDetalhes: Buscando edital ID ${editalId}...`);
-        if (!editalModal || !editalModalTitle || !editalModalBody || !editalModalLink) {
-            console.error("[DEBUG] Modal de detalhes não inicializado corretamente.");
-            return;
-        }
+        if (!editalModal) return;
         editalModalTitle.textContent = "Carregando...";
         editalModalBody.innerHTML = "<p>Buscando informações do edital...</p>";
         editalModalLink.href = '#';
@@ -219,112 +400,107 @@
 
         fetch(`/api/edital/${editalId}`)
             .then(response => {
-                if (!response.ok) { 
-                    console.error(`[DEBUG] mostrarDetalhes: Falha no fetch! Status: ${response.status}`);
-                    throw new Error(`Erro HTTP! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`Erro HTTP! status: ${response.status}`);
                 return response.json();
             })
             .then(data => {
-                console.log(`[DEBUG] mostrarDetalhes: Dados recebidos:`, data);
                 editalModalTitle.textContent = data.titulo || "Detalhes do Edital";
                 let prazoFormatado = 'Não informado';
                 if (data.prazo_submissao) {
                     try {
                         prazoFormatado = new Date(data.prazo_submissao).toLocaleDateString('pt-BR', { timeZone: 'UTC' });
-                    } catch (e) {
-                        console.warn("[DEBUG] Não foi possível formatar a data:", data.prazo_submissao, e);
-                    }
+                    } catch (e) { /* ignora data inválida */ }
                 }
                 
-                // *** CORREÇÃO: Separar Elegibilidade e Resumo ***
-                // Esta é a mudança principal para corrigir o que você viu.
-                let statusBadgeClass = 'bg-secondary'; // Padrão
-                if (data.status && data.status.toLowerCase() === 'aberto') {
-                    statusBadgeClass = 'bg-success';
-                } else if (data.status) {
-                    statusBadgeClass = 'bg-warning text-dark'; // Para "encerrado" ou outros
-                }
-                
+                let statusBadgeClass = 'bg-secondary';
                 let statusTexto = data.status || 'Não informado';
-                // Se estivermos no modo demo, pode vir 'aberto' do DB (hardcoded)
-                // mas a data estar no passado. Vamos ajustar.
-                try {
-                    if (data.prazo_submissao && new Date(data.prazo_submissao) < new Date()) {
-                        statusTexto = "Encerrado";
-                        statusBadgeClass = 'bg-danger'; 
-                    }
-                } catch(e) {}
-
-
-                // Formatação do corpo do modal (ATUALIZADA)
-            editalModalBody.innerHTML = `
+                if (statusTexto === 'aberto') {
+                    statusBadgeClass = 'bg-success'; statusTexto = 'Aberto';
+                } else if (statusTexto === 'fechado') {
+                    statusBadgeClass = 'bg-danger'; statusTexto = 'Fechado';
+                } else {
+                    statusTexto = 'Outro/Indefinido';
+                }
+                
+                editalModalBody.innerHTML = `
                 <dl class="row">
                     <dt class="col-sm-3">Órgão Fomentador</dt>
                     <dd class="col-sm-9">${data.orgao || 'Não informado'}</dd>
-
                     <dt class="col-sm-3">Status</dt>
-                    <dd class="col-sm-9"><span class="badge bg-success text-uppercase">${data.status || 'Não informado'}</span></dd>
-
+                    <dd class="col-sm-9"><span class="badge ${statusBadgeClass} text-uppercase">${statusTexto}</span></dd>
                     <dt class="col-sm-3">Prazo Submissão</dt>
                     <dd class="col-sm-9">${prazoFormatado}</dd>
-
                     <dt class="col-sm-3">Áreas/Tema</dt>
                     <dd class="col-sm-9">${data.areas_tema || 'Não informado'}</dd>
-
                     <dt class="col-sm-3">Elegibilidade</dt>
                     <dd class="col-sm-9">${data.elegibilidade || 'Não informado'}</dd>
                 </dl>
                 <hr>
-
                 <h5>Resumo do Edital</h5>
                 <p>${data.resumo_pdf || 'Resumo não disponível.'}</p>
-
-                
                 `;
-                // *** FIM DA CORREÇÃO ***
                 
                 editalModalLink.href = data.link_pagina || '#';
-                if (!data.link_pagina || data.link_pagina === '#') {
-                    editalModalLink.classList.add('disabled');
-                    editalModalLink.removeAttribute('target');
-                } else {
-                    editalModalLink.classList.remove('disabled');
+                editalModalLink.classList.toggle('disabled', !data.link_pagina || data.link_pagina === '#');
+                if (data.link_pagina && data.link_pagina !== '#') {
                     editalModalLink.setAttribute('target', '_blank');
+                } else {
+                    editalModalLink.removeAttribute('target');
                 }
             })
             .catch(error => {
                  console.error("[DEBUG] Erro CRÍTICO ao buscar detalhes do edital:", error);
                  editalModalTitle.textContent = "Erro ao Carregar"; 
-                 editalModalBody.innerHTML = "<p class='text-danger'>Não foi possível carregar os detalhes do edital. Por favor, tente novamente mais tarde.</p>";
+                 editalModalBody.innerHTML = "<p class='text-danger'>Não foi possível carregar os detalhes do edital.</p>";
                  editalModalLink.classList.add('disabled');
                  editalModalLink.removeAttribute('target');
             });
     }
 
-    // Event Listeners
-    if (selectLinha) {
-        selectLinha.addEventListener('change', exibirResultados);
-    }
-
-    // Inicialização quando o DOM estiver pronto
+    // --- MODIFICADO: Event Listeners ---
     document.addEventListener('DOMContentLoaded', () => {
          console.log("[DEBUG] index.html: DOMContentLoaded disparado. Inicializando...");
 
+         // Inicializa o Modal
          const modalElement = document.getElementById('editalModal'); 
          if (modalElement) {
              editalModal = new bootstrap.Modal(modalElement);
              editalModalTitle = document.getElementById('editalModalTitle');
              editalModalBody = document.getElementById('editalModalBody');
              editalModalLink = document.getElementById('editalModalLink');
-             console.log("[DEBUG] index.html: Modal de detalhes inicializado com sucesso.");
          } else {
-             console.error("[DEBUG] Modal de detalhes do edital (editalModal) não encontrado no DOM!");
+             console.error("[DEBUG] Modal de detalhes (editalModal) não encontrado!");
          }
 
+        // Adiciona listeners para os filtros
+        if (selectLinha) {
+            selectLinha.addEventListener('change', () => {
+                paginaAtual = 1; // Reseta a página
+                exibirResultados();
+            });
+        }
+        if (selectStatusFiltro) {
+            selectStatusFiltro.addEventListener('change', () => {
+                paginaAtual = 1; // Reseta a página
+                exibirResultados();
+            });
+        }
+        
+        // Listener das Abas (Corrigido)
+        if (abasContainer) {
+            abasContainer.addEventListener('shown.bs.tab', function (event) {
+                const programa = event.target.getAttribute('data-programa');
+                if (programa) {
+                    console.log(`[DEBUG] Aba 'shown.bs.tab' disparado: ${programa}`);
+                    popularDropdownParaPrograma(programa); 
+                    // a função acima já reseta a página e chama exibirResultados()
+                }
+            });
+        }
+        
+        // Inicia a carga dos dados
         popularDropdown();
         buscarTodosOsMatches();
-        // A UI de login (alerta/botão) é tratada pelo script no base.html agora
     });
 
 </script>

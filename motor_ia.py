@@ -328,9 +328,16 @@ class MotorDeCompatibilidade:
             return []
         try:
             cursor = conn.cursor()
-            # --- MODIFICADO PARA DEMONSTRAÇÃO ---
-            # Ordena por score descendente e limita a 10 resultados GLOBAIS
-            matches = cursor.execute("SELECT * FROM match ORDER BY score DESC LIMIT 10").fetchall()
+            # --- MODIFICADO: Junta com 'edital' para pegar o 'status' e remove o LIMIT ---
+            matches = cursor.execute("""
+                SELECT 
+                    m.edital_id, m.edital_titulo, m.linha_id, m.linha_nome, 
+                    m.programa, m.score, m.notificado, m.data_calculo,
+                    e.status 
+                FROM match AS m
+                JOIN edital AS e ON m.edital_id = e.id
+                ORDER BY m.score DESC
+            """).fetchall()
             conn.close()
             return matches
         except sqlite3.OperationalError:
@@ -373,9 +380,9 @@ class MotorDeCompatibilidade:
             return None
 
     # --- Método pesado de cálculo ---
-    # --- MODIFICADO PARA DEMONSTRAÇÃO ---
-    # Parâmetros top_n e limiar_minimo são ignorados; limite_demonstracao controla
-    def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.10, limite_demonstracao=10):
+    # --- MODIFICADO PARA CORREÇÃO: Remove 'top_n' e 'limite_demonstracao' ---
+    # Esta versão calcula TODOS os matches para TODAS as linhas acima do limiar
+    def encontrar_e_salvar_matches(self, limiar_minimo=0.10):
         if self.model is None:
             print("Modelo de IA não carregado. Não é possível calcular matches.")
             return 0
@@ -408,13 +415,14 @@ class MotorDeCompatibilidade:
             print("Tabelas de editais ou linhas estão vazias.")
             return 0
 
-        # --- MODO DEMONSTRAÇÃO ATIVO (inclui editais encerrados) ---
+        # Processa todos os editais lidos
         df_editais_elegiveis = df_editais
 
         if df_editais_elegiveis.empty:
-            print("Nenhum edital elegível encontrado.") # Mensagem ajustada
+            print("Nenhum edital elegível encontrado.") 
             return 0
 
+        # Verifica e recalcula embeddings pendentes (lógica mantida)
         if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
              print("AVISO: Coluna 'embedding' faltando ou vazia.")
              print("Executando cálculo de embedding para linhas pendentes...")
@@ -460,24 +468,23 @@ class MotorDeCompatibilidade:
              return 0
 
         lista_matches = []
-        matches_encontrados = 0 # Contador para o limite de demonstração
-
-        # --- MODIFICADO PARA DEMONSTRAÇÃO ---
-        # Itera linha por linha, depois edital por edital, parando quando atingir o limite
+        
+        # --- CORRIGIDO: Loop por CADA linha de pesquisa ---
+        # Este é o loop que itera sobre as linhas (e.g., Imageamento Digital, Modelagem Terrestre, etc.)
         for idx_linha_relativo, (linha_id_real, linha) in enumerate(df_linhas_com_embedding.iterrows()):
-            if matches_encontrados >= limite_demonstracao:
-                print(f"Limite de {limite_demonstracao} matches para demonstração atingido. Parando busca.")
-                break # Sai do loop das linhas
-
+            
+            # Pega a coluna de scores desta linha
             scores_para_esta_linha = matriz_similaridade[:, idx_linha_relativo]
-            # Ordena os editais por score para esta linha
+            
+            # Obtém os índices dos editais, ordenados do maior score para o menor
             indices_editais_ordenados = np.argsort(scores_para_esta_linha)[::-1]
 
+            # --- CORRIGIDO: Salva TODOS os matches acima do limiar ---
+            # Este loop itera sobre todos os editais para a linha atual
             for idx_edital_relativo in indices_editais_ordenados:
-                if matches_encontrados >= limite_demonstracao:
-                    break # Sai do loop dos editais para esta linha
-
                 score = scores_para_esta_linha[idx_edital_relativo]
+                
+                # Salva o match se for maior que o limiar
                 if score >= limiar_minimo:
                     edital = df_editais_elegiveis.iloc[idx_edital_relativo]
                     match = {
@@ -490,7 +497,12 @@ class MotorDeCompatibilidade:
                         'notificado': False
                     }
                     lista_matches.append(match)
-                    matches_encontrados += 1 # Incrementa o contador
+                else:
+                    # Os scores estão ordenados, se este é muito baixo, os próximos também serão.
+                    # Podemos parar de olhar os editais PARA ESTA LINHA e ir para a próxima.
+                    break 
+        
+        # --- Fim do loop das linhas ---
 
         if not lista_matches:
             print("Nenhum match encontrado acima do limiar.")
@@ -505,14 +517,14 @@ class MotorDeCompatibilidade:
             cursor.execute("DELETE FROM match") # Limpa os matches antigos
             match_tuples = [
                 (m['edital_id'], m['edital_titulo'], m['linha_id'], m['linha_nome'], m['programa'], m['score'], m['notificado'])
-                for m in lista_matches # Salva apenas os matches encontrados até o limite
+                for m in lista_matches
             ]
             cursor.executemany("""
                 INSERT INTO match (edital_id, edital_titulo, linha_id, linha_nome, programa, score, notificado)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, match_tuples)
             conn_save.commit()
-            print(f"{len(lista_matches)} matches salvos no banco de dados (limite de demonstração: {limite_demonstracao}).")
+            print(f"{len(lista_matches)} matches TOTAIS salvos no banco de dados (acima do limiar de {limiar_minimo}).")
             return len(lista_matches)
         except sqlite3.Error as e:
             print(f"Erro ao salvar matches no SQLite: {e}")
@@ -613,7 +625,6 @@ class MotorDeCompatibilidade:
             print("[Notificador] Erro: Não foi possível conectar ao DB para buscar matches.")
             return []
 
-        # Este query junta as 3 tabelas para pegar todas as infos necessárias
         query = """
         SELECT
             m.edital_id, m.linha_id, m.score,
@@ -623,7 +634,7 @@ class MotorDeCompatibilidade:
         FROM match AS m
         JOIN edital AS e ON m.edital_id = e.id
         JOIN linha_ime AS l ON m.linha_id = l.id
-        WHERE m.notificado = FALSE AND m.score >= ?
+        WHERE m.notificado = FALSE AND m.score >= ? AND e.status = 'aberto'
         ORDER BY l.id, m.score DESC;
         """
         try:
