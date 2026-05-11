@@ -12,6 +12,13 @@ from dotenv import load_dotenv
 from PyPDF2 import PdfReader # Para extrair texto do PDF
 from motor_ia import MotorDeCompatibilidade
 from werkzeug.security import generate_password_hash
+from transformers import T5Tokenizer, T5ForConditionalGeneration
+import torch
+from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer as SumyTokenizer # Renomeado para evitar conflito
+from sumy.summarizers.lsa import LsaSummarizer as Lsa
+from sumy.nlp.stemmers import Stemmer
+from sumy.utils import get_stop_words
 
 # --- NOVO IMPORT ---
 from notificador import enviar_notificacao_match 
@@ -28,7 +35,31 @@ PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR = ["empresa", "startup", "exclusivo para"]
 # --- NOVA CONFIGURAÇÃO ---
 # Limiar de score para enviar notificação por e-mail (Ex: 0.35 = 35%)
 # (Conforme doc Projeto IPE2)
-LIMIAR_NOTIFICACAO = 0.35 
+LIMIAR_NOTIFICACAO = 0.50 
+
+# Em run_update.py, abaixo das outras configurações globais
+print("[Setup] Carregando modelo de sumarização (pode levar um tempo)...")
+try:
+    # Usamos um modelo T5 otimizado para sumarização em português
+    MODEL_NAME = "recogna-nlp/ptt5-base-summ"
+    tokenizer_sum = T5Tokenizer.from_pretrained(MODEL_NAME)
+    model_sum = T5ForConditionalGeneration.from_pretrained(MODEL_NAME)
+    print("[Setup] Modelo de sumarização carregado com sucesso.")
+except Exception as e:
+    print(f"AVISO: Falha ao carregar modelo de sumarização: {e}. Resumos não serão gerados.")
+    model_sum = None
+    tokenizer_sum = None
+
+print("[Setup] Carregando sumarizador extrativo (Sumy)...")
+try:
+    LANGUAGE = "portuguese"
+    stemmer = Stemmer(LANGUAGE)
+    summarizer_lsa = Lsa(stemmer)
+    summarizer_lsa.stop_words = get_stop_words(LANGUAGE)
+    print("[Setup] Sumarizador extrativo carregado.")
+except Exception as e:
+    print(f"AVISO: Falha ao carregar o Sumy: {e}. O fallback de resumo pode ser de baixa qualidade.")
+    summarizer_lsa = None
 
 # --- Funções Auxiliares ---
 
@@ -106,10 +137,9 @@ def seed_initial_data(motor):
         cursor.execute("SELECT COUNT(*) as count FROM linha_ime")
         if cursor.fetchone()['count'] == 0:
             print("[Seed Data] Tabela 'linha_ime' vazia. Adicionando dados reais do IME...")
-            
-            # --- ATUALIZADO: Dados reais extraídos do .docx ---
-            # (programa, linha, descricao, emails_contato, embedding, user_id)
-            # Assumindo user_id=1 para 'admin@ime.br'
+             # --- ATUALIZADO: Dados reais extraídos do .docx ---
+             # (programa, linha, descricao, emails_contato, embedding, user_id)
+             # Assumindo user_id=1 para 'admin@ime.br'
             linhas_data = [
                 ('Engenharia Cartográfica', 'Imageamento Digital',
                  """A linha de pesquisa de Imageamento Digital tem por objetivos específicos o processamento, a análise de imagens digitais e a compreensão de cenas, com base nos dados provenientes de sensores ativos e passivos, em todos os seus níveis de aquisição. Destaca-se, nesta linha, a correção de distorções radiométricas e geométricas em imagens digitais por meio de técnicas de fotogrametria, o emprego de sensores hiperespectrais e de imagens multitemporais multisensores para a melhor compreensão da dinâmica de uso e cobertura da terra. O desenvolvimento de técnicas e conhecimentos baseados em abordagens avançadas para a detecção de alvos e reconhecimento de feições cartográficas é feito com o uso de abordagens como a neurocomputação e de análises de imagens baseadas em objetos georreferenciados (OBIA). O uso do imageamento orbital permite a obtenção contínua de informações de toda a superfície do País com intervalos regulares de poucos dias ou até de horas, tornando importante o domínio dos métodos de obtenção de informações georreferenciadas a partir de um imenso volume de dados espaciais amplamente disponíveis atualmente, devido à crescente tecnologia de satélites e das plataformas baseadas em drone (VARP ou VANT).""",
@@ -236,6 +266,79 @@ def seed_initial_data(motor):
     finally:
         conn.close()
 
+# Em run_update.py, pode ser antes de 'run_finep_crawler'
+
+def gerar_resumo(texto_completo, max_input_length=1024, num_sentences_extractive=10):
+    """
+    Gera um resumo HÍBRIDO:
+    1. Usa Sumy (LSA) para EXTRAIR as X sentenças mais importantes do texto longo.
+    2. Usa T5 (IA) para REESCREVER (abstrair) essas sentenças em um resumo coeso.
+    """
+    
+    # Fallback 1: Se o modelo T5 (IA principal) não carregou
+    if not model_sum or not tokenizer_sum:
+        print("  AVISO: Modelo T5 não carregado. Usando fallback extrativo (Sumy).")
+        if not summarizer_lsa:
+            return "Resumo não disponível (Modelos não carregados)."
+        try:
+            parser = PlaintextParser.from_string(texto_completo, SumyTokenizer(LANGUAGE))
+            summary_sentences = summarizer_lsa(parser.document, num_sentences_extractive)
+            return " ".join([str(s) for s in summary_sentences])
+        except Exception as e:
+            print(f"  ERRO no fallback do Sumy: {e}")
+            return "Resumo não disponível."
+
+    # Fallback 2: Se o texto for muito curto ou vazio
+    if not texto_completo or len(texto_completo) < 500:
+        print("  AVISO: Texto muito curto para sumarização híbrida. Usando T5 direto.")
+        # (Se o texto for curto, o T5 dá conta sozinho)
+        try:
+            input_text = "resumir: " + texto_completo
+            inputs = tokenizer_sum(input_text, max_length=512, truncation=True, return_tensors="pt")
+            summary_ids = model_sum.generate(inputs["input_ids"], num_beams=4, max_length=150, min_length=30, early_stopping=True)
+            return tokenizer_sum.decode(summary_ids[0], skip_special_tokens=True)
+        except Exception as e_short:
+            print(f"  ERRO no T5 (texto curto): {e_short}")
+            return "Resumo não disponível."
+    
+    # --- MÉTODO HÍBRIDO (O caminho principal) ---
+    try:
+        # Etapa 1: Sumarização Extrativa (Pega as X melhores sentenças do texto todo)
+        print("  (Sumarizador Híbrido - Etapa 1: Extraindo sentenças-chave...)")
+        if not summarizer_lsa:
+            raise Exception("Sumarizador LSA (Sumy) não foi carregado.")
+            
+        parser = PlaintextParser.from_string(texto_completo, SumyTokenizer(LANGUAGE))
+        summary_sentences = summarizer_lsa(parser.document, num_sentences_extractive)
+        texto_focado = " ".join([str(s) for s in summary_sentences])
+        
+        # Etapa 2: Sumarização Abstrativa (Pede para a IA reescrever as sentenças-chave)
+        print("  (Sumarizador Híbrido - Etapa 2: Gerando resumo com IA...)")
+        input_text = "resumir: " + texto_focado
+        
+        # Truncamos o input focado (sentenças-chave) para o limite do T5
+        inputs = tokenizer_sum(input_text, 
+                               max_length=max_input_length, 
+                               truncation=True, 
+                               return_tensors="pt")
+
+        summary_ids = model_sum.generate(inputs["input_ids"], 
+                                       num_beams=4, 
+                                       max_length=150,  # Comprimento máximo do resumo
+                                       min_length=30,   # Comprimento mínimo
+                                       early_stopping=True)
+
+        resumo = tokenizer_sum.decode(summary_ids[0], skip_special_tokens=True)
+        print(f"  Resumo HÍBRIDO gerado com sucesso ({len(resumo)} caracteres).")
+        return resumo
+
+    except Exception as e:
+        print(f"  ERRO CRÍTICO ao gerar resumo HÍBRIDO: {e}")
+        traceback.print_exc()
+        # Fallback final: só retorna as 5 primeiras frases
+        sentences = texto_completo.split('.')
+        fallback_summary = '. '.join(sentences[:5]).strip()
+        return fallback_summary + "..." if len(sentences) > 5 else fallback_summary
 
 def run_finep_crawler(motor):
     """
@@ -248,12 +351,8 @@ def run_finep_crawler(motor):
     if os.path.exists(JSON_OUTPUT_FILE):
         os.remove(JSON_OUTPUT_FILE)
         
-    # Executa o Scrapy como um subprocesso. Esta é a forma mais robusta
-    # de rodar Scrapy de dentro de outro script, evitando problemas com o 'reactor' do Twisted.
+    # Executa o Scrapy como um subprocesso.
     try:
-        # Usamos sys.executable para garantir que estamos usando o mesmo python
-        # -m scrapy: executa o scrapy como módulo
-        # -L INFO: Reduz o log para não poluir
         comando = [
             sys.executable, "-m", "scrapy", "runspider", 
             "finep_spider.py", "-o", JSON_OUTPUT_FILE, "-L", "INFO"
@@ -296,7 +395,6 @@ def run_finep_crawler(motor):
     
     editais_novos_count = 0
     editais_ignorados_count = 0
-    # --- MUDANÇA: Definindo o limite de 1 ano atrás ---
     data_limite_antigo = datetime.date.today() - datetime.timedelta(days=365)
     
     for item in crawler_results:
@@ -314,16 +412,16 @@ def run_finep_crawler(motor):
             continue
 
         # --- FILTRO 2: Prazo Expirado (Conforme sua sugestão) ---
-        # --- MUDANÇA: Capturando a string original do prazo ---
         prazo_str = item.get('Prazo Final', 'Prazo não encontrado')
         prazo_date = parse_prazo(prazo_str)
-        if prazo_date and prazo_date < datetime.date.today():
-            print(f"  Filtro (Prazo): Prazo expirado em {prazo_date}. Ignorando.")
-            editais_ignorados_count += 1
-            continue
+        # --- MODIFICADO PARA DEMONSTRAÇÃO ---
+        # Filtro de prazo desativado para permitir editais encerrados
+        # if prazo_date and prazo_date < datetime.date.today():
+        #     print(f"  Filtro (Prazo): Prazo expirado em {prazo_date}. Ignorando.")
+        #     editais_ignorados_count += 1
+        #     continue
             
         # --- FILTRO 3: Elegibilidade (Conforme sua sugestão) ---
-        # --- MUDANÇA: Capturando a string original do público-alvo ---
         publico_alvo_str = item.get('Público-alvo', 'Não especificado')
         publico_alvo_lower = publico_alvo_str.lower()
         if any(palavra in publico_alvo_lower for palavra in PALAVRAS_CHAVE_ELEGIBILIDADE_IGNORAR):
@@ -331,60 +429,130 @@ def run_finep_crawler(motor):
             editais_ignorados_count += 1
             continue
             
-        # --- NOVO FILTRO 4: Editais Antigos Sem Prazo (Sua sugestão) ---
-        # Verifica se o prazo E o público-alvo estão ausentes
-        sem_prazo = (prazo_str == 'Prazo não encontrado' or prazo_str == '')
-        sem_publico = (publico_alvo_str == 'Não especificado' or publico_alvo_str == '')
-        
-        if sem_prazo and sem_publico:
-            data_pub_str = item.get('Data de Publicação', 'Não encontrada')
-            data_pub_date = parse_data_publicacao(data_pub_str)
-            
-            if data_pub_date and data_pub_date < data_limite_antigo:
-                print(f"  Filtro (Antigo): Edital sem prazo/público, publicado em {data_pub_date} (mais de 1 ano). Ignorando.")
-                editais_ignorados_count += 1
-                continue
-            elif data_pub_date is None:
-                 # Se não tiver prazo, nem público, nem data de publicação, melhor ignorar.
-                 print(f"  Filtro (Dados Insuficientes): Edital sem prazo, público ou data de publicação. Ignorando.")
-                 editais_ignorados_count += 1
-                 continue
-            # Se for recente (menos de 1 ano), ele passa e é processado.
 
         print("  Status: Edital NOVO e passou nos pré-filtros. Processando PDF...")
 
         # --- ETAPA CARA: Processamento do PDF ---
         link_pdf = item.get('Link PDF')
+        texto_pdf = "" # Garante que a variável exista
         if not link_pdf:
             print("  AVISO: Edital sem link de PDF. Será inserido sem 'texto_pdf'.")
             texto_pdf = ""
         else:
-            texto_pdf = extrair_texto_pdf(link_pdf)
-            if texto_pdf is None:
+            texto_pdf_extraido = extrair_texto_pdf(link_pdf)
+            if texto_pdf_extraido is None:
                 print("  AVISO: Falha na extração do PDF. Será inserido sem 'texto_pdf'.")
                 texto_pdf = ""
+            else:
+                texto_pdf = texto_pdf_extraido
+
+        # ===================================================================
+        # NOVA ETAPA: "Fatiar" o PDF para focar no que importa (VERSÃO 2.0)
+        # ===================================================================
+        print("  Fatiando o texto do PDF para focar no conteúdo principal...")
+        texto_focado_para_resumo = texto_pdf
+        texto_pdf_upper = texto_pdf.upper() # Normaliza para maiúsculas
+        
+        # Palavras-chave de INÍCIO (Da mais específica para a mais genérica)
+        start_keywords = [
+            "DESAFIOS TECNOLÓGICOS", 
+            "LINHAS TEMÁTICAS", 
+            "OBJETIVOS ESPECÍFICOS", 
+            "OBJETIVO" # Último recurso
+        ]
+        
+        # Palavras-chave de FIM (Marcam o fim do conteúdo bom)
+        end_keywords = [
+            "RECURSOS FINANCEIROS", 
+            "ELEGIBILIDADE", 
+            "CRITÉRIOS DE ELEGIBILIDADE",
+            "CRONOGRAMA"
+        ]
+
+        posicao_inicio = -1
+        posicao_fim = -1
+
+        # 1. Encontra o melhor ponto de INÍCIO (agora na ordem correta)
+        for key in start_keywords:
+            posicao_inicio = texto_pdf_upper.find(key)
+            if posicao_inicio != -1:
+                print(f"  Encontrada keyword de INÍCIO: '{key}'.")
+                break
+        
+        if posicao_inicio == -1:
+            print("  AVISO: Nenhuma keyword de início encontrada. Usando texto completo.")
+            texto_focado_para_resumo = texto_pdf
+        else:
+            # 2. Se achou um início, tenta achar um FIM
+            # Pegamos o texto fatiado do início em diante
+            texto_fatiado_inicio = texto_pdf[posicao_inicio:]
+            texto_fatiado_inicio_upper = texto_fatiado_inicio.upper()
+            
+            # Procuramos o ponto final SÓ DEPOIS do ponto inicial
+            posicao_fim_relativa = -1
+            for key in end_keywords:
+                posicao_fim_relativa = texto_fatiado_inicio_upper.find(key)
+                if posicao_fim_relativa != -1:
+                    print(f"  Encontrada keyword de FIM: '{key}'.")
+                    break
+            
+            if posicao_fim_relativa == -1:
+                print("  AVISO: Nenhuma keyword de fim encontrada. Usando o texto do início até 5000 caracteres.")
+                texto_focado_para_resumo = texto_fatiado_inicio[:5000] # Pega um pedaço grande
+            else:
+                # Pega só o miolo relevante
+                texto_focado_para_resumo = texto_fatiado_inicio[:posicao_fim_relativa]
+
+        # ===================================================================
+        # FIM DA NOVA ETAPA
+        # ===================================================================      
+        
+        # ===================================================================
+        # INÍCIO DO BLOCO CORRIGIDO (INDENTADO PARA DENTRO DO LOOP 'for')
+        # ===================================================================
+
+        # --- GERAÇÃO DO RESUMO ---
+        print("  Gerando resumo do texto do PDF...")
+        resumo_pdf = gerar_resumo(texto_focado_para_resumo)
+        # --- FIM DA GERAÇÃO ---
 
         # --- Preparação dos dados para o DB ---
+        
+        # --- NOVO: Define o status com base na data do prazo ---
+        # (A variável 'prazo_date' foi definida logo acima, por volta da linha 387)
+        status_db = 'outro' # Padrão (ex: "em breve", "não informado")
+        if prazo_date: # Se a data foi parseada com sucesso
+            if prazo_date < datetime.date.today():
+                status_db = 'fechado'
+            else:
+                status_db = 'aberto'
+        # Se prazo_date for None, status_db permanece 'outro'
+
         edital_data = {
             'titulo': item.get('Título'),
             'orgao': 'FINEP',
             'link_pagina': link_pagina,
             'texto_pdf': texto_pdf,
-            'status': 'aberto', # Sabemos que está aberto pela URL do crawler
-            'modalidade': None, # Nosso crawler não captura
+            'resumo_pdf': resumo_pdf,
+            'status': status_db, # <-- MODIFICADO: Agora é baseado na data
+            'modalidade': None, 
             'prazo_submissao': prazo_date,
-            'valor_estimado': None, # Nosso crawler não captura
+            'valor_estimado': None, 
             'elegibilidade': item.get('Público-alvo'),
-            'areas_tema': ", ".join(item.get('Tema', [])), # Converte lista em string
+            'areas_tema': ", ".join(item.get('Tema', [])),
             'data_captura': datetime.datetime.now()
         }
-        
+            
         # --- Inserção no Banco de Dados ---
         if motor.insert_edital(edital_data):
             print(f"  SUCESSO: Edital '{item.get('Título')}' inserido no banco.")
             editais_novos_count += 1
         else:
             print(f"  ERRO: Falha ao inserir edital '{item.get('Título')}' no banco.")
+            
+        # ===================================================================
+        # FIM DO BLOCO CORRIGIDO
+        # ===================================================================
 
     print("\n--- Resumo da Coleta ---")
     print(f"Editais novos inseridos: {editais_novos_count}")
@@ -485,4 +653,3 @@ def run_complete_update():
 
 if __name__ == "__main__":
     run_complete_update()
-

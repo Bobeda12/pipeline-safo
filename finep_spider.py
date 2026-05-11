@@ -9,18 +9,29 @@ class FinepSpider(scrapy.Spider):
     name = 'finep_editais'
     
     allowed_domains = ['finep.gov.br']
-    start_urls = ['http://www.finep.gov.br/chamadas-publicas?situacao=aberta']
+    
+    # --- MODIFICADO: Busca TUDO, 'aberta' E 'encerrada' ---
+    # O crawler vai iniciar nas duas páginas e paginar em ambas
+    start_urls = [
+        'http://www.finep.gov.br/chamadas-publicas?situacao=aberta',
+        'http://www.finep.gov.br/chamadas-publicas?situacao=encerrada'
+    ]
 
     def parse(self, response):
+        # --- Lógica original (correta) para extrair links ---
         links_dos_editais = response.css('div.item h3 a::attr(href)').getall()
         for link in links_dos_editais:
+            # response.follow já resolve URLs relativas
             yield response.follow(link, callback=self.parse_item_details)
 
+        # --- MODIFICADO: Paginação foi ATIVADA ---
+        # Esta lógica funciona para ambas as seções (aberta e encerrada)
         link_proxima_pagina = response.css('li.pagination-next a::attr(href)').get()
         if link_proxima_pagina is not None:
             yield response.follow(link_proxima_pagina, callback=self.parse)
 
     def parse_item_details(self, response):
+        # --- Lógica original (correta) para extrair detalhes ---
         titulo = response.css('h2.tit_pag a::text').get()
         data_publicacao = response.xpath('//div[@class="tit" and contains(text(), "Data de Publicação")]/following-sibling::div[@class="text"]/text()').get()
         prazo_final = response.xpath('//div[@class="tit" and contains(text(), "Prazo para envio de propostas até:")]/following-sibling::div[@class="text"]/text()').get()

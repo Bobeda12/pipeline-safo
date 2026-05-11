@@ -77,14 +77,14 @@ class MotorDeCompatibilidade:
         try:
             cursor = conn.cursor()
             print("[DB Setup] Verificando e criando tabelas se não existirem...")
-            
+
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                email TEXT UNIQUE NOT NULL, 
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL
             );""")
-            
+
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS edital (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,6 +92,7 @@ class MotorDeCompatibilidade:
                 orgao TEXT,
                 link_pagina TEXT UNIQUE, -- Chave única para evitar duplicatas
                 texto_pdf TEXT,
+                resumo_pdf TEXT,
                 status TEXT,
                 modalidade TEXT,
                 prazo_submissao DATETIME,
@@ -100,7 +101,7 @@ class MotorDeCompatibilidade:
                 areas_tema TEXT,
                 data_captura DATETIME DEFAULT CURRENT_TIMESTAMP
             );""")
-            
+
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS linha_ime (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,7 +113,7 @@ class MotorDeCompatibilidade:
                 user_id INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             );""")
-            
+
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS match (
                 edital_id INTEGER,
@@ -126,7 +127,7 @@ class MotorDeCompatibilidade:
                 FOREIGN KEY (edital_id) REFERENCES edital (id),
                 FOREIGN KEY (linha_id) REFERENCES linha_ime (id)
             );""")
-            
+
             conn.commit()
             print("[DB Setup] Tabelas verificadas/criadas com sucesso.")
         except sqlite3.Error as e:
@@ -162,13 +163,13 @@ class MotorDeCompatibilidade:
         if not conn:
             print(f"Erro de DB: Não foi possível inserir edital {edital_data.get('titulo')}")
             return False
-        
+
         query = """
         INSERT INTO edital (
-            titulo, orgao, link_pagina, texto_pdf, status, modalidade, 
+            titulo, orgao, link_pagina, texto_pdf, resumo_pdf, status, modalidade,
             prazo_submissao, valor_estimado, elegibilidade, areas_tema, data_captura
         ) VALUES (
-            :titulo, :orgao, :link_pagina, :texto_pdf, :status, :modalidade, 
+            :titulo, :orgao, :link_pagina, :texto_pdf, :resumo_pdf, :status, :modalidade,
             :prazo_submissao, :valor_estimado, :elegibilidade, :areas_tema, :data_captura
         )
         """
@@ -179,7 +180,7 @@ class MotorDeCompatibilidade:
             conn.close()
             return True
         except sqlite3.IntegrityError:
-            # Isso pode acontecer se houver uma condição de corrida, 
+            # Isso pode acontecer se houver uma condição de corrida,
             # mas a checagem anterior (check_edital_exists) deve prevenir 99%
             print(f"Aviso: Edital {edital_data.get('link_pagina')} já existia (IntegrityError).")
             conn.rollback()
@@ -303,7 +304,7 @@ class MotorDeCompatibilidade:
     # --- Métodos Públicos e de Matches (sem alterações) ---
     def obter_linhas_de_pesquisa_publico(self):
         conn = self._get_db_conn()
-        if not conn: 
+        if not conn:
             # --- DEBUG ADICIONADO ---
             print(f"--- [DEBUG] MOTOR_IA: obter_linhas_de_pesquisa_publico falhou em _get_db_conn() ---")
             # --- FIM DEBUG ---
@@ -320,14 +321,23 @@ class MotorDeCompatibilidade:
 
     def encontrar_matches_publico(self):
         conn = self._get_db_conn()
-        if not conn: 
+        if not conn:
             # --- DEBUG ADICIONADO ---
             print(f"--- [DEBUG] MOTOR_IA: encontrar_matches_publico falhou em _get_db_conn() ---")
             # --- FIM DEBUG ---
             return []
         try:
             cursor = conn.cursor()
-            matches = cursor.execute("SELECT * FROM match ORDER BY edital_id, score DESC").fetchall()
+            # --- MODIFICADO: Junta com 'edital' para pegar o 'status' e remove o LIMIT ---
+            matches = cursor.execute("""
+                SELECT 
+                    m.edital_id, m.edital_titulo, m.linha_id, m.linha_nome, 
+                    m.programa, m.score, m.notificado, m.data_calculo,
+                    e.status 
+                FROM match AS m
+                JOIN edital AS e ON m.edital_id = e.id
+                ORDER BY m.score DESC
+            """).fetchall()
             conn.close()
             return matches
         except sqlite3.OperationalError:
@@ -342,7 +352,7 @@ class MotorDeCompatibilidade:
 
     def get_edital_details(self, edital_id):
         conn = self._get_db_conn()
-        if not conn: 
+        if not conn:
             # --- DEBUG ADICIONADO ---
             print(f"--- [DEBUG] MOTOR_IA: get_edital_details falhou em _get_db_conn() ---")
             # --- FIM DEBUG ---
@@ -369,9 +379,10 @@ class MotorDeCompatibilidade:
             conn.close()
             return None
 
-    # --- Método pesado de cálculo (sem alterações) ---
-    def encontrar_e_salvar_matches(self, top_n=5, limiar_minimo=0.10):
-        # ... (código existente mantido) ...
+    # --- Método pesado de cálculo ---
+    # --- MODIFICADO PARA CORREÇÃO: Remove 'top_n' e 'limite_demonstracao' ---
+    # Esta versão calcula TODOS os matches para TODAS as linhas acima do limiar
+    def encontrar_e_salvar_matches(self, limiar_minimo=0.10):
         if self.model is None:
             print("Modelo de IA não carregado. Não é possível calcular matches.")
             return 0
@@ -381,24 +392,16 @@ class MotorDeCompatibilidade:
 
         conn_pd = None
         try:
-            # --- CORREÇÃO FINAL: Conexão para Pandas NÃO DEVE ter row_factory ---
-            # Voltamos a usar a conexão direta do sqlite3 para o pandas,
-            # pois ele não é compatível com o _get_db_conn() que usa row_factory.
             conn_pd = sqlite3.connect(self.db_path)
-            # --- FIM DA CORREÇÃO ---
-            
             df_editais = pd.read_sql_query("SELECT * FROM edital", conn_pd)
             df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn_pd)
         except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
             print(f"Erro ao ler dados do SQLite para calcular matches: {e}")
             traceback.print_exc()
-            if conn_pd: conn_pd.close() # Garante fechamento
+            if conn_pd: conn_pd.close()
             return 0
         finally:
             if conn_pd: conn_pd.close()
-
-        # ... (Restante do método de cálculo de similaridade mantido igual) ...
-        # ... (O código é robusto e lerá os dados reais que o crawler inseriu) ...
 
         print(f"Primeiras 5 linhas lidas da tabela 'edital':")
         print(df_editais.head())
@@ -412,30 +415,26 @@ class MotorDeCompatibilidade:
             print("Tabelas de editais ou linhas estão vazias.")
             return 0
 
-        df_editais_abertos = df_editais[df_editais['status'] == 'aberto'].copy()
-        
-        df_editais_elegiveis = df_editais_abertos
-        
+        # Processa todos os editais lidos
+        df_editais_elegiveis = df_editais
+
         if df_editais_elegiveis.empty:
-            print("Nenhum edital aberto encontrado.")
+            print("Nenhum edital elegível encontrado.") 
             return 0
 
+        # Verifica e recalcula embeddings pendentes (lógica mantida)
         if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
              print("AVISO: Coluna 'embedding' faltando ou vazia.")
              print("Executando cálculo de embedding para linhas pendentes...")
-             self.calcular_embeddings_pendentes() # Chama o cálculo
-             
-             # Tenta recarregar os dados
+             self.calcular_embeddings_pendentes()
              try:
                  conn_pd = sqlite3.connect(self.db_path)
                  df_linhas = pd.read_sql_query("SELECT * FROM linha_ime", conn_pd)
              finally:
                  if conn_pd: conn_pd.close()
-                 
              if 'embedding' not in df_linhas.columns or df_linhas['embedding'].isnull().all():
                  print("ERRO: Mesmo após recalcular, embeddings não foram encontrados.")
                  return 0
-
 
         embeddings_linhas = []
         df_linhas_com_embedding = df_linhas.dropna(subset=['embedding']).copy()
@@ -469,11 +468,23 @@ class MotorDeCompatibilidade:
              return 0
 
         lista_matches = []
-        for idx_linha_relativo, (linha_id_real, linha) in enumerate(df_linhas_com_embedding.iterrows()): # Use iterrows para obter ID real
+        
+        # --- CORRIGIDO: Loop por CADA linha de pesquisa ---
+        # Este é o loop que itera sobre as linhas (e.g., Imageamento Digital, Modelagem Terrestre, etc.)
+        for idx_linha_relativo, (linha_id_real, linha) in enumerate(df_linhas_com_embedding.iterrows()):
+            
+            # Pega a coluna de scores desta linha
             scores_para_esta_linha = matriz_similaridade[:, idx_linha_relativo]
-            indices_top_n_relativos = np.argsort(scores_para_esta_linha)[-top_n:][::-1]
-            for idx_edital_relativo in indices_top_n_relativos:
+            
+            # Obtém os índices dos editais, ordenados do maior score para o menor
+            indices_editais_ordenados = np.argsort(scores_para_esta_linha)[::-1]
+
+            # --- CORRIGIDO: Salva TODOS os matches acima do limiar ---
+            # Este loop itera sobre todos os editais para a linha atual
+            for idx_edital_relativo in indices_editais_ordenados:
                 score = scores_para_esta_linha[idx_edital_relativo]
+                
+                # Salva o match se for maior que o limiar
                 if score >= limiar_minimo:
                     edital = df_editais_elegiveis.iloc[idx_edital_relativo]
                     match = {
@@ -486,6 +497,12 @@ class MotorDeCompatibilidade:
                         'notificado': False
                     }
                     lista_matches.append(match)
+                else:
+                    # Os scores estão ordenados, se este é muito baixo, os próximos também serão.
+                    # Podemos parar de olhar os editais PARA ESTA LINHA e ir para a próxima.
+                    break 
+        
+        # --- Fim do loop das linhas ---
 
         if not lista_matches:
             print("Nenhum match encontrado acima do limiar.")
@@ -497,7 +514,7 @@ class MotorDeCompatibilidade:
             return 0
         try:
             cursor = conn_save.cursor()
-            cursor.execute("DELETE FROM match")
+            cursor.execute("DELETE FROM match") # Limpa os matches antigos
             match_tuples = [
                 (m['edital_id'], m['edital_titulo'], m['linha_id'], m['linha_nome'], m['programa'], m['score'], m['notificado'])
                 for m in lista_matches
@@ -507,7 +524,7 @@ class MotorDeCompatibilidade:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, match_tuples)
             conn_save.commit()
-            print(f"{len(lista_matches)} matches salvos no banco de dados.")
+            print(f"{len(lista_matches)} matches TOTAIS salvos no banco de dados (acima do limiar de {limiar_minimo}).")
             return len(lista_matches)
         except sqlite3.Error as e:
             print(f"Erro ao salvar matches no SQLite: {e}")
@@ -516,6 +533,7 @@ class MotorDeCompatibilidade:
             return 0
         finally:
             if conn_save: conn_save.close()
+
 
     # --- NOVO MÉTODO: Calcular embeddings pendentes ---
     def calcular_embeddings_pendentes(self):
@@ -526,7 +544,7 @@ class MotorDeCompatibilidade:
         if self.model is None:
             print("Modelo de IA não carregado. Não é possível calcular embeddings.")
             return 0
-            
+
         # --- CORREÇÃO: Conexão para Pandas NÃO DEVE ter row_factory ---
         # Usar o db_path diretamente para o Pandas
         conn_pd = None
@@ -535,7 +553,7 @@ class MotorDeCompatibilidade:
             # Criar uma conexão limpa SÓ PARA O PANDAS
             conn_pd = sqlite3.connect(self.db_path)
             df_linhas_pendentes = pd.read_sql_query(
-                "SELECT id, descricao FROM linha_ime WHERE embedding IS NULL AND (descricao IS NOT NULL AND descricao != '')", 
+                "SELECT id, descricao FROM linha_ime WHERE embedding IS NULL AND (descricao IS NOT NULL AND descricao != '')",
                 conn_pd # <-- Usar a conexão limpa
             )
         except (sqlite3.Error, pd.io.sql.DatabaseError) as e:
@@ -581,7 +599,7 @@ class MotorDeCompatibilidade:
         if not conn_save:
             print("Erro de DB: Não foi possível conectar para salvar embeddings.")
             return 0
-            
+
         try:
             cursor = conn_save.cursor()
             cursor.executemany("UPDATE linha_ime SET embedding = ? WHERE id = ?", update_data)
@@ -603,11 +621,10 @@ class MotorDeCompatibilidade:
         Junta com edital (para link/prazo) e linha_ime (para emails).
         """
         conn = self._get_db_conn()
-        if not conn: 
+        if not conn:
             print("[Notificador] Erro: Não foi possível conectar ao DB para buscar matches.")
             return []
-        
-        # Este query junta as 3 tabelas para pegar todas as infos necessárias
+
         query = """
         SELECT
             m.edital_id, m.linha_id, m.score,
@@ -617,7 +634,7 @@ class MotorDeCompatibilidade:
         FROM match AS m
         JOIN edital AS e ON m.edital_id = e.id
         JOIN linha_ime AS l ON m.linha_id = l.id
-        WHERE m.notificado = FALSE AND m.score >= ?
+        WHERE m.notificado = FALSE AND m.score >= ? AND e.status = 'aberto'
         ORDER BY l.id, m.score DESC;
         """
         try:
@@ -637,10 +654,10 @@ class MotorDeCompatibilidade:
         Marca uma lista de matches (tuplas (edital_id, linha_id)) como notificados.
         """
         conn = self._get_db_conn()
-        if not conn or not match_keys: 
+        if not conn or not match_keys:
             print("[Notificador] Erro: Não foi possível conectar ao DB para marcar matches.")
             return False
-            
+
         query = "UPDATE match SET notificado = TRUE WHERE edital_id = ? AND linha_id = ?"
         try:
             cursor = conn.cursor()
@@ -656,3 +673,4 @@ class MotorDeCompatibilidade:
         finally:
             if conn:
                 conn.close()
+
