@@ -36,7 +36,7 @@ O projeto opera através de um pipeline de dados contínuo, estruturado em três
 - `run_update.py`: Script de orquestração que executa a coleta e atualização dos scores.
 - `notificador.py`: Módulo de envio automático de e-mails.
 
-## ⚙️ Instruções de Execução
+## Instruções de Execução
 
 1. **Clone o repositório**
    ```bash
@@ -77,7 +77,7 @@ O projeto opera através de um pipeline de dados contínuo, estruturado em três
    ```
    Acesse a aplicação em: `http://localhost:5001/`
 
-## 🔒 Segurança (Portfólio)
+##  Segurança 
 - Credenciais sensíveis e o banco de dados local (`*.db`) estão ignorados no controle de versão (`.gitignore`).
 - O arquivo `.env.example` serve como template para as chaves necessárias, mantendo a segurança da aplicação.
 
